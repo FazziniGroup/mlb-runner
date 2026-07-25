@@ -168,8 +168,7 @@
         <div class="rowlbl">Version</div>
         <div class="difficulty" id="ver">
           <button class="diffbtn" data-ver="1">V1 · Classic</button>
-          <button class="diffbtn" data-ver="2">V2 · Faces</button>
-          <button class="diffbtn" data-ver="3">V3 · Full FX</button>
+          <button class="diffbtn" data-ver="2">V2 · Modern</button>
         </div>
         <div class="rowlbl">Difficulty</div>
         <div class="difficulty" id="diff">
@@ -475,9 +474,10 @@
   let diffKey = localStorage.getItem("mlbDiff") || "medium";
   if (!DIFFS[diffKey]) diffKey = "medium";
 
-  let version = Number(localStorage.getItem("mlbVer") || 1);   // 1=classic, 2=faces, 3=full FX
-  if (![1, 2, 3].includes(version)) version = 1;
-  const richSound = () => version === 3;
+  let version = Number(localStorage.getItem("mlbVer") || 2);   // 1=Classic, 2=Modern (faces + full sound)
+  if (version === 3) version = 2;                              // migrate old "V3"
+  if (![1, 2].includes(version)) version = 2;
+  const richSound = () => version === 2;
   function useImg(im) { return version >= 2 && ready(im); }
 
   const GRAVITY = 0.62, JUMP_V = -10.8;
