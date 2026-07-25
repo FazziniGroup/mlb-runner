@@ -29,6 +29,12 @@
     animation: powerPulse 0.9s ease-in-out infinite; touch-action: none;
   }
   .powerbtn.on { display: block; }
+  .soundbtn {
+    position: absolute; bottom: 8px; left: 8px; z-index: 46; display: none;
+    width: 34px; height: 34px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,0.6);
+    background: rgba(10,18,30,0.5); color: #fff; font-size: 16px; line-height: 1; cursor: pointer; touch-action: none;
+  }
+  .soundbtn.on { display: block; }
   @keyframes powerPulse { 0%,100% { transform: translateX(-50%) scale(1); box-shadow: 0 3px 12px rgba(0,0,0,0.45); } 50% { transform: translateX(-50%) scale(1.14); box-shadow: 0 0 18px rgba(255,210,63,0.9); } }
 
   .stage {
@@ -146,6 +152,8 @@
 
       <!-- Secret-character power button (⚾) -->
       <button class="powerbtn" id="powerBtn" title="Big Boy Powers!">⚾</button>
+      <!-- sound toggle -->
+      <button class="soundbtn" id="soundBtn">🔊</button>
 
       <!-- On-screen controls for phones -->
       <div class="touch" id="touch">
@@ -180,7 +188,8 @@
         </div>
         <div class="actions">
           <button class="play" id="playBtn">Play Ball ▶</button>
-          <button class="ghost" id="surprise">💪 Big Boy Powers</button>
+          <button class="ghost" id="surprise">🔥 Big Boy Powers</button>
+          <button class="ghost" id="soundBtnMenu">🔊 Sound On</button>
           <button class="ghost" id="fsBtn">⛶ Full Screen</button>
         </div>
       </div>
@@ -306,9 +315,19 @@
   // ======================= SOUND ==========================================
   // All synthesized in-browser (WebAudio) + browser speech — no audio files.
   let audioCtx = null, muted = false, crowdGain = null, crowdSrc = null;
+  let audioUnlocked = false;
   function ensureAudio() {
     if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
     if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+  }
+  // Browsers block audio until a user gesture — unlock it on the first tap/click/key.
+  function unlockAudio() {
+    ensureAudio(); if (!audioCtx) return;
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    if (!audioUnlocked) {
+      try { const b = audioCtx.createBuffer(1, 1, 22050), s = audioCtx.createBufferSource(); s.buffer = b; s.connect(audioCtx.destination); s.start(0); } catch (e) {}
+      audioUnlocked = true;
+    }
   }
   function beep(freq, dur = 0.08, type = "square", vol = 0.05) {
     if (muted) return; ensureAudio(); if (!audioCtx) return;
@@ -510,7 +529,7 @@
     resetLevelSpawns();
     stopWinMusic();
     menuEl.classList.add("hidden"); gameoverEl.classList.add("hidden"); winEl.classList.add("hidden");
-    ensureAudio(); startCrowd();                    // crowd loop (all versions)
+    unlockAudio(); startCrowd();                    // crowd loop (all versions)
     if (!startBall()) chargeRiff();                 // "Play Ball!" file, else the CHARGE! riff
   }
 
@@ -604,7 +623,7 @@
   }
 
   window.addEventListener("keydown", (e) => {
-    if (e.code === "KeyM") { muted = !muted; if (crowdGain) crowdGain.gain.value = muted ? 0 : CROWD_BASE; if (crowdFile) SFX.crowd.volume = muted ? 0 : 0.5; return; }
+    if (e.code === "KeyM") { toggleSound(); return; }
     if (state === S.MENU) {
       if (e.code === "ArrowLeft") { changeChar(-1); }
       else if (e.code === "ArrowRight") { changeChar(1); }
@@ -638,6 +657,23 @@
   });
   canvas.addEventListener("pointerup", () => { if (isTouch) return; setDuck(false); jumpHeld = false; if (player.vy < -4.5) player.vy = -4.5; });
   canvas.addEventListener("pointercancel", () => { setDuck(false); jumpHeld = false; });
+
+  // unlock audio on the very first interaction (fixes "no sound" on desktop + mobile)
+  window.addEventListener("pointerdown", unlockAudio);
+  window.addEventListener("keydown", unlockAudio);
+  // sound on/off buttons (menu + in-game)
+  const soundBtn = document.getElementById("soundBtn"), soundBtnMenu = document.getElementById("soundBtnMenu");
+  function setSoundIcons() { if (soundBtn) soundBtn.textContent = muted ? "🔇" : "🔊"; if (soundBtnMenu) soundBtnMenu.textContent = muted ? "🔇 Sound Off" : "🔊 Sound On"; }
+  function toggleSound() {
+    muted = !muted; unlockAudio();
+    if (crowdGain) crowdGain.gain.value = muted ? 0 : CROWD_BASE;
+    if (crowdFile) SFX.crowd.volume = muted ? 0 : 0.5;
+    if (!muted) beep(880, 0.06, "square", 0.05);   // little confirm blip
+    setSoundIcons();
+  }
+  soundBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); toggleSound(); });
+  soundBtnMenu.addEventListener("pointerdown", (e) => { e.preventDefault(); toggleSound(); });
+  setSoundIcons();
 
   // On-screen JUMP / SLIDE buttons (reliable touch input)
   const btnJump = document.getElementById("btnJump"), btnSlide = document.getElementById("btnSlide");
@@ -1292,9 +1328,9 @@
     ctx.fillText(String(Math.floor(score)).padStart(5, "0"), W - 14, 12);
     ctx.fillStyle = inkDim; ctx.font = "bold 12px 'Courier New', monospace";
     ctx.fillText("HI " + String(Math.floor(high)).padStart(5, "0"), W - 14, 33);
-    // player tag (tiny, bottom-left)
-    ctx.textAlign = "left"; ctx.textBaseline = "alphabetic"; ctx.fillStyle = inkDim; ctx.font = "bold 10px Arial";
-    ctx.fillText(ROSTER[charIndex].name + " · " + diffKey.toUpperCase() + " · V" + version + (muted ? " · 🔇" : ""), 12, H - 8);
+    // player tag (tiny, bottom-center)
+    ctx.textAlign = "center"; ctx.textBaseline = "alphabetic"; ctx.fillStyle = inkDim; ctx.font = "bold 10px Arial";
+    ctx.fillText(ROSTER[charIndex].name + " · " + diffKey.toUpperCase() + " · V" + version, W / 2, H - 8);
   }
 
   // ======================= COLLISION ======================================
@@ -1494,6 +1530,7 @@
     }
 
     if (touchEl) touchEl.classList.toggle("on", isTouch && state === S.PLAYING);
+    if (soundBtn) soundBtn.classList.toggle("on", state !== S.MENU);
     if (powerBtn) powerBtn.classList.toggle("on", state === S.PLAYING && ROSTER[charIndex].secret && !batMode && !starMode);
 
     requestAnimationFrame(frame);
