@@ -456,26 +456,27 @@
     const minGap = speed * cfg.reactFrames;      // must-clear reaction distance
     return minGap + Math.random() * cfg.gapExtra;
   }
+  // per-type ground obstacle sizes (bigger + hitbox matches the drawing)
+  const GSIZE = { ump: [36, 50], hotdog: [42, 26], crackerjack: [32, 48], soda: [32, 48], seeds: [32, 46], gum: [34, 26] };
   function spawnObstacle() {
     const L = LEVELS[levelIdx];
-    // AIR: baseballs (rival team names) in bursts — hold SLIDE to clear a row
+    // AIR: big baseballs (rival team names) at head height — you MUST SLIDE under
     if (L.air && Math.random() < L.ballChance) {
       const n = 1 + ((Math.random() * (levelIdx >= 3 ? 3 : 2)) | 0);
-      let gx = W + 20;
+      let gx = W + 22;
       for (let i = 0; i < n; i++) {
-        const amp = Math.random() < 0.35 ? 7 + Math.random() * 7 : 0;
         const team = oppTeams[(Math.random() * oppTeams.length) | 0];
-        obstacles.push({ type: "ball", x: gx, w: 22, h: 22, baseY: GROUND_Y - 30, bob: Math.random() * 6.28, bobY: 0, amp, team });
-        gx += 34 + Math.random() * 16;
+        obstacles.push({ type: "ball", x: gx, w: 34, h: 34, baseY: GROUND_Y - 32, bob: 0, bobY: 0, amp: 0, team });
+        gx += 50 + Math.random() * 18;
       }
       spawnGap = nextGap();
       return;
     }
-    // GROUND: ump or food, uniform size. Occasional pair — hold JUMP to clear both.
+    // GROUND: ump or food (jump over). Occasional pair — hold JUMP to clear both.
     const g = L.ground;
-    const pushGround = (x) => obstacles.push({ type: g[(Math.random() * g.length) | 0], x, w: 26, h: 36, baseY: GROUND_Y, bobY: 0 });
-    if (levelIdx >= 2 && Math.random() < 0.22) { pushGround(W + 20); pushGround(W + 84); }
-    else pushGround(W + 20);
+    const pushGround = (x) => { const t = g[(Math.random() * g.length) | 0]; const s = GSIZE[t] || [32, 46]; obstacles.push({ type: t, x, w: s[0], h: s[1], baseY: GROUND_Y, bobY: 0 }); };
+    if (levelIdx >= 2 && Math.random() < 0.22) { pushGround(W + 22); pushGround(W + 22 + 104); }
+    else pushGround(W + 22);
     spawnGap = nextGap();
   }
 
@@ -589,74 +590,75 @@
   function drawTeamBall(cx, cy, r, team) {
     const g = ctx; g.save();
     g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fillStyle = "#fdfdfd"; g.fill();
-    g.lineWidth = 1.4; g.strokeStyle = "rgba(0,0,0,0.35)"; g.stroke();
-    g.strokeStyle = "#d33"; g.lineWidth = 1.4;
+    g.lineWidth = 1.8; g.strokeStyle = "rgba(0,0,0,0.4)"; g.stroke();
+    g.strokeStyle = "#d33"; g.lineWidth = 1.8;
     g.beginPath(); g.arc(cx - r * 0.62, cy, r * 1.06, -0.6, 0.6); g.stroke();
     g.beginPath(); g.arc(cx + r * 0.62, cy, r * 1.06, Math.PI - 0.6, Math.PI + 0.6); g.stroke();
-    if (team) { g.fillStyle = team.color; g.font = "bold 8px Arial"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(team.abbr, cx, cy + 0.5); }
+    if (team) { g.fillStyle = team.color; g.font = "bold " + Math.round(r * 0.62) + "px Arial"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(team.abbr, cx, cy + 0.5); }
     g.restore();
   }
 
-  // Umpire in the level's bright color + bold black outline so it never blends
-  function drawUmpire(cx, baseY, w, h, color) {
+  // Big BLACK umpire with a thick outline + white mask so it pops on any park
+  function drawUmpire(cx, baseY, w, h, accent) {
     const g = ctx; g.save(); g.translate(cx, baseY);
     const hw = w / 2;
     g.lineJoin = "round";
-    // legs + shoes (dark, outlined)
-    g.fillStyle = "#20242c"; g.strokeStyle = "#000"; g.lineWidth = 1.5;
-    g.fillRect(-hw * 0.55, -h * 0.34, w * 0.24, h * 0.34); g.strokeRect(-hw * 0.55, -h * 0.34, w * 0.24, h * 0.34);
-    g.fillRect(hw * 0.10, -h * 0.34, w * 0.24, h * 0.34); g.strokeRect(hw * 0.10, -h * 0.34, w * 0.24, h * 0.34);
-    g.fillStyle = "#0c0c0c"; g.fillRect(-hw * 0.62, -h * 0.05, w * 0.32, h * 0.06); g.fillRect(hw * 0.02, -h * 0.05, w * 0.32, h * 0.06);
-    // arms in team color
-    g.fillStyle = color;
-    g.fillRect(-hw * 0.98, -h * 0.72, w * 0.16, h * 0.30); g.strokeRect(-hw * 0.98, -h * 0.72, w * 0.16, h * 0.30);
-    g.fillRect(hw * 0.82, -h * 0.72, w * 0.16, h * 0.30); g.strokeRect(hw * 0.82, -h * 0.72, w * 0.16, h * 0.30);
-    // body (bright uniform) + chest protector, thick outline
-    g.fillStyle = color; g.lineWidth = 2;
-    roundRect(g, -hw * 0.9, -h * 0.78, w * 0.9, h * 0.48, w * 0.16); g.fill(); g.stroke();
-    g.fillStyle = "rgba(255,255,255,0.85)"; roundRect(g, -hw * 0.66, -h * 0.72, w * 0.66, h * 0.36, w * 0.1); g.fill();
-    g.strokeStyle = color; g.lineWidth = 1.4;
-    for (let i = 1; i <= 2; i++) { const yy = -h * 0.72 + i * h * 0.12; g.beginPath(); g.moveTo(-hw * 0.66, yy); g.lineTo(-hw * 0.66 + w * 0.66, yy); g.stroke(); }
-    // head: skin + dark cap + white mask cage, outlined
-    const hy = -h * 0.82, hr = h * 0.15;
+    // legs + shoes
+    g.fillStyle = "#191b21"; g.strokeStyle = "#000"; g.lineWidth = 1.8;
+    g.fillRect(-hw * 0.5, -h * 0.34, w * 0.24, h * 0.34); g.strokeRect(-hw * 0.5, -h * 0.34, w * 0.24, h * 0.34);
+    g.fillRect(hw * 0.06, -h * 0.34, w * 0.24, h * 0.34); g.strokeRect(hw * 0.06, -h * 0.34, w * 0.24, h * 0.34);
+    g.fillStyle = "#000"; g.fillRect(-hw * 0.58, -h * 0.04, w * 0.32, h * 0.06); g.fillRect(-hw * -0.02, -h * 0.04, w * 0.32, h * 0.06);
+    // arms
+    g.fillStyle = "#14161c";
+    g.fillRect(-hw * 0.98, -h * 0.72, w * 0.17, h * 0.32); g.strokeRect(-hw * 0.98, -h * 0.72, w * 0.17, h * 0.32);
+    g.fillRect(hw * 0.81, -h * 0.72, w * 0.17, h * 0.32); g.strokeRect(hw * 0.81, -h * 0.72, w * 0.17, h * 0.32);
+    // black uniform body + dark chest protector, thick outline
+    g.fillStyle = "#111319"; g.lineWidth = 2.6;
+    roundRect(g, -hw * 0.9, -h * 0.8, w * 0.9, h * 0.52, w * 0.16); g.fill(); g.stroke();
+    g.fillStyle = "#2b2f38"; roundRect(g, -hw * 0.66, -h * 0.74, w * 0.66, h * 0.4, w * 0.1); g.fill();
+    g.fillStyle = accent; g.fillRect(-hw * 0.66, -h * 0.46, w * 0.66, 3);   // level-color accent stripe
     g.strokeStyle = "#000"; g.lineWidth = 1.5;
+    for (let i = 1; i <= 2; i++) { const yy = -h * 0.74 + i * h * 0.14; g.beginPath(); g.moveTo(-hw * 0.66, yy); g.lineTo(-hw * 0.66 + w * 0.66, yy); g.stroke(); }
+    // head: skin + black cap + WHITE mask cage, outlined
+    const hy = -h * 0.84, hr = h * 0.16;
+    g.strokeStyle = "#000"; g.lineWidth = 2;
     g.fillStyle = "#8a5a3b"; g.beginPath(); g.arc(0, hy, hr, 0, Math.PI * 2); g.fill(); g.stroke();
-    g.fillStyle = "#111"; g.beginPath(); g.arc(0, hy, hr * 1.16, Math.PI, Math.PI * 2); g.closePath(); g.fill();
-    g.strokeStyle = "#e8ebf0"; g.lineWidth = 1.3;
+    g.fillStyle = "#0c0c0c"; g.beginPath(); g.arc(0, hy, hr * 1.18, Math.PI, Math.PI * 2); g.closePath(); g.fill();
+    g.strokeStyle = "#f2f4f7"; g.lineWidth = 1.7;
     g.beginPath(); g.arc(0, hy + h * 0.02, hr, -0.4, Math.PI + 0.4); g.stroke();
     for (let i = -1; i <= 1; i++) { g.beginPath(); g.moveTo(i * hr * 0.5, hy - hr * 0.7); g.lineTo(i * hr * 0.5, hy + hr * 0.95); g.stroke(); }
     g.restore();
   }
 
-  // Ballpark food obstacles (jump these). All share the uniform ground box.
+  // Bigger, bolder ballpark food obstacles (jump these)
   function drawFood(type, cx, baseY, w, h) {
     const g = ctx; g.save(); g.translate(cx, baseY);
-    g.lineJoin = "round"; g.strokeStyle = "#000"; g.lineWidth = 1.5; g.textAlign = "center"; g.textBaseline = "middle";
+    g.lineJoin = "round"; g.strokeStyle = "#000"; g.lineWidth = 1.9; g.textAlign = "center"; g.textBaseline = "middle";
     const outR = (x, y, ww, hh, r) => { roundRect(g, x, y, ww, hh, r); g.fill(); g.stroke(); };
     if (type === "hotdog") {
-      g.fillStyle = "#f2c25a"; outR(-15, -22, 30, 16, 7);           // bun
-      g.fillStyle = "#a5432a"; outR(-18, -17, 36, 7, 4);            // sausage
-      g.strokeStyle = "#ffd21a"; g.lineWidth = 2; g.beginPath();     // mustard
-      for (let x = -15; x <= 15; x += 5) g.lineTo(x, -13.5 + (x % 10 ? 2 : -2)); g.stroke();
+      g.fillStyle = "#f2c25a"; outR(-20, -25, 40, 18, 9);           // bun
+      g.fillStyle = "#a5432a"; outR(-23, -19, 46, 9, 5);            // sausage
+      g.strokeStyle = "#ffd21a"; g.lineWidth = 2.6; g.beginPath();   // mustard
+      for (let x = -16; x <= 16; x += 6) g.lineTo(x, -14.5 + (((x / 6) & 1) ? 2.5 : -2.5)); g.stroke();
     } else if (type === "crackerjack") {
-      g.fillStyle = "#e2231a"; outR(-11, -30, 22, 30, 3);          // red box
-      g.fillStyle = "#fff"; g.fillRect(-11, -20, 22, 8);
-      g.fillStyle = "#e2231a"; g.font = "bold 7px Arial"; g.fillText("CJ", 0, -16);
-      g.fillStyle = "#1a3d8f"; g.font = "bold 6px Arial"; g.fillText("★", 0, -25);
+      g.fillStyle = "#e2231a"; outR(-14, -46, 28, 46, 3);          // red box
+      g.fillStyle = "#fff"; g.fillRect(-14, -31, 28, 12);
+      g.fillStyle = "#e2231a"; g.font = "bold 10px Arial"; g.fillText("CJ", 0, -25);
+      g.fillStyle = "#1a3d8f"; g.font = "bold 11px Arial"; g.fillText("★", 0, -39);
     } else if (type === "soda") {
-      g.fillStyle = "#d11a2a"; g.beginPath(); g.moveTo(-10, -28); g.lineTo(10, -28); g.lineTo(7, 0); g.lineTo(-7, 0); g.closePath(); g.fill(); g.stroke(); // cup
-      g.fillStyle = "#fff"; g.fillRect(-10, -22, 20, 6);
-      g.fillStyle = "#bcdcff"; g.fillRect(-11, -32, 22, 4); g.strokeRect(-11, -32, 22, 4); // lid
-      g.strokeStyle = "#e33"; g.lineWidth = 2; g.beginPath(); g.moveTo(6, -34); g.lineTo(10, -20); g.stroke(); // straw
+      g.fillStyle = "#d11a2a"; g.beginPath(); g.moveTo(-14, -44); g.lineTo(14, -44); g.lineTo(9, 0); g.lineTo(-9, 0); g.closePath(); g.fill(); g.stroke(); // cup
+      g.fillStyle = "#fff"; g.fillRect(-13, -34, 26, 8);
+      g.fillStyle = "#bcdcff"; outR(-15, -50, 30, 6, 2);           // lid
+      g.strokeStyle = "#e33"; g.lineWidth = 2.6; g.beginPath(); g.moveTo(7, -52); g.lineTo(12, -30); g.stroke(); // straw
     } else if (type === "seeds") {
-      g.fillStyle = "#1f9d55"; outR(-11, -30, 22, 30, 4);          // bag
-      g.fillStyle = "#fff"; g.font = "bold 6px Arial"; g.fillText("SUN", 0, -20); g.fillText("SEEDS", 0, -12);
+      g.fillStyle = "#1f9d55"; outR(-15, -44, 30, 44, 5);          // bag
+      g.fillStyle = "#fff"; g.font = "bold 8px Arial"; g.fillText("SUN", 0, -30); g.fillText("SEEDS", 0, -20);
     } else if (type === "gum") {
-      g.fillStyle = "#ff5fa2"; outR(-14, -18, 28, 14, 3);          // gum pack
-      g.fillStyle = "#fff"; g.fillRect(-14, -13, 28, 3);
-      g.fillStyle = "#2b6cff"; g.font = "bold 6px Arial"; g.fillText("GUM", 0, -11);
+      g.fillStyle = "#ff5fa2"; outR(-17, -25, 34, 21, 4);          // gum pack
+      g.fillStyle = "#fff"; g.fillRect(-17, -16, 34, 4);
+      g.fillStyle = "#2b6cff"; g.font = "bold 9px Arial"; g.fillText("GUM", 0, -13);
     } else {
-      g.fillStyle = "#888"; outR(-10, -24, 20, 24, 4);
+      g.fillStyle = "#888"; outR(-12, -30, 24, 30, 4);
     }
     g.restore();
   }
@@ -693,20 +695,35 @@
     g.restore();
   }
 
+  // Baseball SLIDE (hold down): body low & reclined, front leg extended, dust flying
   function drawDuck(g, ch) {
-    g.save(); g.translate(0, -2);
-    // two bent legs tucked under
-    g.fillStyle = PANTS; g.fillRect(-12, -13, 9, 13); g.fillRect(3, -13, 9, 13);
-    g.fillStyle = ch.primary; g.fillRect(-12, -4, 9, 5); g.fillRect(3, -4, 9, 5);   // socks
-    g.fillStyle = "#111"; g.fillRect(-13, 0, 11, 4); g.fillRect(2, 0, 11, 4);       // cleats
-    // crouched torso
-    g.fillStyle = "#f6f6f4"; roundRect(g, -13, -32, 26, 20, 7); g.fill();
-    g.fillStyle = ch.accent; g.fillRect(-13, -23, 26, 3);
-    g.fillStyle = ch.primary; g.font = "bold 10px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
-    g.fillText(ch.num, 0, -21);
-    drawArm(g, 9, -28, 1.0, ch);   // one arm reaching forward
-    drawHead(g, 6, -19, 0.05, ch);
+    // dust puffs trailing behind
+    g.fillStyle = "rgba(255,255,255,0.55)";
+    for (let i = 0; i < 3; i++) { g.beginPath(); g.arc(-22 - i * 7, -4 - (i % 2) * 3, 3 + i, 0, Math.PI * 2); g.fill(); }
+    // extended front leg (sliding forward)
+    g.save(); g.translate(2, -8); g.rotate(0.08);
+    g.fillStyle = PANTS; g.fillRect(0, -5, 28, 9);
+    g.fillStyle = ch.primary; g.fillRect(26, -5, 8, 9);
+    g.fillStyle = "#111"; g.fillRect(32, -3, 9, 6);
     g.restore();
+    // tucked back leg
+    g.save(); g.translate(-4, -9); g.rotate(-0.7);
+    g.fillStyle = PANTS; g.fillRect(-4, 0, 9, 13);
+    g.fillStyle = ch.primary; g.fillRect(-4, 11, 9, 5);
+    g.restore();
+    // reclined torso
+    g.save(); g.translate(-7, -15); g.rotate(-0.5);
+    g.fillStyle = "#f6f6f4"; roundRect(g, -11, -12, 24, 19, 6); g.fill();
+    g.fillStyle = ch.accent; g.fillRect(-11, -4, 24, 3);
+    g.fillStyle = ch.primary; g.font = "bold 10px Arial"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(ch.num, 1, -2);
+    g.restore();
+    // trailing arm reaching back
+    g.save(); g.translate(-15, -14); g.rotate(-1.1);
+    g.fillStyle = "#f6f6f4"; g.fillRect(-3, 0, 6, 7);
+    g.fillStyle = ch.skin; g.fillRect(-3, 6, 6, 8);
+    g.restore();
+    // head leaning back, low (slides under the baseballs)
+    drawHead(g, -18, -13, -0.32, ch);
   }
 
   function drawLeg(g, hipX, angle, ch, back) {
@@ -724,12 +741,12 @@
   }
   function drawHead(g, cx, cy, tilt, ch, party) {
     g.save(); g.translate(cx, cy); g.rotate(tilt);
-    const R = 14;  // big "bobblehead" size so the face reads clearly
+    const R = 17;  // big "bobblehead" size so the face is clearly noticeable
     if (useImg(ch.face)) {
-      // real face, zoomed in and circle-clipped for a big-head look
+      // real face, fit to the circle (minimal zoom) so it isn't cut off
       g.save(); g.beginPath(); g.arc(0, 0, R, 0, Math.PI * 2); g.clip();
-      const s = R * 2.15; g.drawImage(ch.face, -s / 2, -s / 2, s, s); g.restore();
-      g.lineWidth = 1.5; g.strokeStyle = "rgba(0,0,0,0.22)"; g.beginPath(); g.arc(0, 0, R, 0, Math.PI * 2); g.stroke();
+      const s = R * 2.05; g.drawImage(ch.face, -s / 2, -s / 2, s, s); g.restore();
+      g.lineWidth = 1.6; g.strokeStyle = "rgba(0,0,0,0.25)"; g.beginPath(); g.arc(0, 0, R, 0, Math.PI * 2); g.stroke();
     } else {
       // clean cartoon face, scaled up
       g.fillStyle = ch.skin; g.beginPath(); g.arc(0, 1, R, 0, Math.PI * 2); g.fill();
@@ -808,14 +825,7 @@
   }
   function drawPark() {
     const L = LEVELS[levelIdx];
-    // real stadium photo backdrop if provided
-    if (ready(L.bg)) {
-      coverDraw(L.bg, 0, 0, W, GROUND_Y);
-      const gr = ctx.createLinearGradient(0, GROUND_Y - 74, 0, GROUND_Y);
-      gr.addColorStop(0, "rgba(0,0,0,0)"); gr.addColorStop(1, "rgba(0,0,0,0.30)");
-      ctx.fillStyle = gr; ctx.fillRect(0, GROUND_Y - 74, W, 74);
-      return;
-    }
+    // (Real stadium photos disabled — the drawn cartoon parks look better.)
     // grandstand band
     ctx.fillStyle = shade(L.wall, L.night ? 0.55 : 0.85);
     ctx.fillRect(0, 96, W, 60);
