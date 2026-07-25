@@ -216,7 +216,8 @@
     { name: "Fernando Tatis Jr.", team: "Padres",  abbr: "SD",  primary: "#2f241d", accent: "#ffc425", num: "23", mark: "SD", skin: "#a56c43", img: "tatis" },
     { name: "José Ramírez",     team: "Guardians", abbr: "CLE", primary: "#0c2340", accent: "#e31937", num: "11", mark: "C",  skin: "#8a5a3b", img: "jramirez" },
     { name: "Corey Seager",     team: "Rangers",   abbr: "TEX", primary: "#003278", accent: "#c0111f", num: "5",  mark: "T",  skin: "#c68642", img: "seager" },
-    { name: "Tyler • Dude Perfect", team: "Dude Perfect", abbr: "DP", primary: "#0e76bc", accent: "#ffffff", num: "DP", mark: "DP", skin: "#d8a373", img: "tyler", secret: true },
+    { name: "Tyler • Dude Perfect", team: "Dude Perfect", abbr: "DP", primary: "#0e76bc", accent: "#ffffff", num: "DP", mark: "DP", skin: "#d8a373", img: "tyler", secret: true, power: "star" },
+    { name: "Brooks Fazzini", team: "Fazzini", abbr: "BF", primary: "#111318", accent: "#ffd23f", num: "1", mark: "B", skin: "#e8c39e", img: "brooks", secret: true, power: "bat" },
     // Add up to 4 more secret characters here (secret: true, img: "<file>") — the
     // Easter Egg button cycles through all of them. Drop img/players/<file>.png.
   ];
@@ -237,7 +238,7 @@
   // ======================= OPTIONAL REAL IMAGES ===========================
   // Drop files in img/players/<img>.png and img/logos/<abbr>.png to use them.
   // Missing files fall back to the drawn version automatically.
-  const ASSET_VER = "10";  // bump to force phones/browsers to reload images + audio
+  const ASSET_VER = "11";  // bump to force phones/browsers to reload images + audio
   function loadImg(src) { const im = new Image(); im.src = src + "?v=" + ASSET_VER; return im; }
   ROSTER.forEach(c => { c.face = loadImg("img/players/" + c.img + ".png"); });
   TEAMS.forEach(t => { t.logo = loadImg("img/logos/" + t.abbr.toLowerCase() + ".png"); });
@@ -450,7 +451,7 @@
   let celebrating = false, celebrateTimer = 0;        // level-clear home-run cutscene
   const CELEB_LEN = 84;
   let goalActive = false;                             // home-plate goal at the end of a level
-  let starMode = false, jumpTimes = [], ghostFlash = 0, crushBursts = [];   // secret: 5 fast jumps = star power
+  let starMode = false, batMode = false, jumpTimes = [], ghostFlash = 0, crushBursts = [];   // secret powers
   let starTimer = 0;                 // >0 = timed star (golden bat); Infinity = permanent (secret)
   let floaters = [], treatsLeft = 0, batLeft = 0;   // pickups + golden bat
   let sizeLevel = 0, iframes = 0, hrSoundPlayed = false;   // Mario-style grow/shrink
@@ -488,7 +489,7 @@
     oppTeams = TEAMS.filter(t => t.abbr !== me.abbr);
     if (oppTeams.length === 0) oppTeams = TEAMS;
     levelIdx = 0; champShown = false; levelFlash = 0; makeStars();
-    starMode = false; starTimer = 0; jumpTimes = []; ghostFlash = 0; crushBursts = []; floaters = [];
+    starMode = false; batMode = false; starTimer = 0; jumpTimes = []; ghostFlash = 0; crushBursts = []; floaters = [];
     sizeLevel = 0; iframes = 0; hrSoundPlayed = false; goalActive = false;
     resetLevelSpawns();
     stopWinMusic();
@@ -566,8 +567,13 @@
     const now = performance.now();
     jumpTimes.push(now);
     jumpTimes = jumpTimes.filter(t => now - t < 1500);
-    // secret characters: 5 fast jumps -> STAR POWER (invincible + crush) for the run
-    if (jumpTimes.length >= 5 && ROSTER[charIndex].secret && !starMode) {
+    // secret powers: Brooks = 3 fast jumps -> BAT MODE; others = 5 fast jumps -> STAR POWER
+    const ch = ROSTER[charIndex];
+    if (!ch.secret) return;
+    if (ch.power === "bat" && jumpTimes.length >= 3 && !batMode) {
+      batMode = true; ghostFlash = 60; jumpTimes = [];
+      if (richSound()) cheer(); else beep(660, 0.25, "square", 0.06);
+    } else if (ch.power !== "bat" && jumpTimes.length >= 5 && !starMode) {
       activateStar(Infinity); ghostFlash = 60; jumpTimes = [];
       if (richSound()) cheer(); else beep(880, 0.25, "triangle", 0.06);
     }
@@ -1103,6 +1109,24 @@
     g.strokeStyle = "#b8901f"; g.lineWidth = 1; g.stroke();
     g.restore();
   }
+  function drawBatAura(cx, feetY) {
+    const g = ctx, t = performance.now() * 0.022, cy = feetY - 30;
+    // whirling bat around the player
+    g.save(); g.translate(cx, cy); g.rotate(t);
+    g.fillStyle = "#c8925a"; g.strokeStyle = "#5a3a17"; g.lineWidth = 1.8; g.lineJoin = "round";
+    roundRect(g, 8, -4.5, 42, 9, 4.5); g.fill(); g.stroke();
+    g.fillStyle = "#8a5a2a"; g.fillRect(3, -4.5, 7, 9);
+    g.restore();
+    // swoosh arc
+    g.strokeStyle = "rgba(255,255,255,0.35)"; g.lineWidth = 3;
+    g.beginPath(); g.arc(cx, cy, 50, t - 1.1, t + 0.5); g.stroke();
+    // big gold chain on the neck + $ pendant
+    g.save(); g.strokeStyle = "#ffd23f"; g.lineWidth = 3.5;
+    g.beginPath(); g.arc(cx, feetY - 40, 11, 0.15, Math.PI - 0.15); g.stroke();
+    g.fillStyle = "#ffd23f"; g.beginPath(); g.arc(cx, feetY - 29, 5, 0, Math.PI * 2); g.fill();
+    g.fillStyle = "#111318"; g.font = "bold 7px Arial"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("$", cx, feetY - 28.5);
+    g.restore();
+  }
   function drawStarGlow(cx, feetY) {
     const t = performance.now() * 0.006;
     const cy = feetY - 26, r = 34 + Math.sin(t * 3) * 5, hue = (t * 90) % 360;
@@ -1263,6 +1287,15 @@
     goScore.textContent = "Score " + Math.floor(score) + "  ·  High " + Math.floor(high);
     gameoverEl.classList.remove("hidden");
   }
+  // Fall in the water -> drop back one inning and replay it (not game over)
+  function fallBack() {
+    levelIdx = Math.max(0, levelIdx - 1);
+    distance = (levelIdx === 0 ? 0 : LEVELS[levelIdx - 1].target) * 6 + 10;
+    obstacles = []; goalActive = false; spawnGap = 340; resetLevelSpawns(); makeStars();
+    player.y = GROUND_Y; player.vy = 0; player.onGround = true; player.ducking = false;
+    floaters.push({ x: player.x + 60, y: GROUND_Y - 70, txt: "💦 SPLASH! Back an inning", t: 64, c: "#8fd3ff" });
+    if (richSound()) groan(); else beep(200, 0.2, "sawtooth", 0.05);
+  }
 
   // ======================= LOOP ===========================================
   let last = performance.now();
@@ -1320,6 +1353,7 @@
         if (iframes > 0) iframes -= dt;
 
         const pb = playerBox();
+        if (batMode) { pb.x -= 28; pb.w += 56; pb.y -= 18; pb.h += 18; }   // bat whacks with extra reach
         let died = false;
         for (const o of obstacles) {
           if (o.type === "finish" || o.gone || !hit(pb, o)) continue;
@@ -1333,7 +1367,7 @@
             o.gone = true; sizeLevel = Math.min(2, sizeLevel + 1);
             floaters.push({ x: o.x, y: o.baseY - o.h, txt: "GROW! 💪", t: 40, c: "#ffd23f" });
             beep(523, 0.06, "square", 0.05); beep(784, 0.09, "square", 0.05);
-          } else if (starMode) {
+          } else if (starMode || batMode) {
             o.gone = true;
             crushBursts.push({ x: o.x, y: o.baseY - o.h / 2 + (o.bobY || 0), t: 16 });
             beep(760, 0.05, "square", 0.04);
@@ -1357,13 +1391,14 @@
         if (!died) {
           const fin = obstacles.find(o => o.type === "finish");
           if (fin && !fin.resolved) {
-            const dx = player.x - fin.x;
-            if (!player.onGround && Math.abs(dx) <= fin.bridgeHalf) {
+            const dx = player.x - fin.x, invincible = starMode || batMode;
+            if ((invincible || !player.onGround) && Math.abs(dx) <= fin.bridgeHalf) {
+              // jumped the bridge (or invincible power carries you across the water)
               fin.resolved = true; goalActive = false;
               if (levelIdx < LEVELS.length - 1) { levelIdx++; onLevelUp(); }
               else { startPitch(); }                       // final level -> throw a strike to win
-            } else if (player.onGround && Math.abs(dx) <= fin.waterHalf) {
-              fin.resolved = true; endGame(ROSTER[charIndex].name.split(" ")[0] + " fell in the water! 💦");
+            } else if (!invincible && player.onGround && Math.abs(dx) <= fin.waterHalf) {
+              fin.resolved = true; fallBack();   // splash — back one inning
             }
           }
         }
@@ -1399,6 +1434,7 @@
         const blink = iframes > 0 && Math.floor(iframes / 4) % 2 === 0;
         if (!blink) drawRunner(ctx, player.x, player.y, ROSTER[charIndex],
           { duck: player.ducking, onGround: player.onGround, runFrame: player.runFrame, star: starMode, scale: 1 + sizeLevel * 0.28 });
+        if (batMode) drawBatAura(player.x, player.y);
       }
       drawHUD();
     }
@@ -1421,10 +1457,11 @@
     }
 
     if (ghostFlash > 0) {
+      const txt = batMode ? "🏏 BAT SMASH! 🏏" : "⭐ STAR POWER! ⭐";
       ctx.globalAlpha = Math.min(1, ghostFlash / 24);
       ctx.textAlign = "center"; ctx.font = "bold 24px Arial";
-      ctx.lineWidth = 4; ctx.strokeStyle = "rgba(0,0,0,0.4)"; ctx.strokeText("⭐ STAR POWER! ⭐", W / 2, 88);
-      ctx.fillStyle = "hsl(" + ((performance.now() * 0.5) % 360) + ",100%,60%)"; ctx.fillText("⭐ STAR POWER! ⭐", W / 2, 88);
+      ctx.lineWidth = 4; ctx.strokeStyle = "rgba(0,0,0,0.4)"; ctx.strokeText(txt, W / 2, 88);
+      ctx.fillStyle = "hsl(" + ((performance.now() * 0.5) % 360) + ",100%,60%)"; ctx.fillText(txt, W / 2, 88);
       ctx.globalAlpha = 1; ghostFlash -= dt;
     }
 
