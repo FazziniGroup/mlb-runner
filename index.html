@@ -20,7 +20,16 @@
   .title { text-align: center; line-height: 1.1; }
   .title h1 { margin: 0; font-size: clamp(20px, 5vw, 32px); letter-spacing: 0.5px; color: #fff; }
   .title h1 .red { color: #ce1141; }
+  .title .byline { margin: 3px 0 0; font-size: 13px; font-weight: 800; color: #ffd23f; letter-spacing: 0.5px; }
   .title p { margin: 4px 0 0; font-size: 13px; opacity: 0.6; }
+  .powerbtn {
+    position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 45; display: none;
+    width: 46px; height: 46px; border-radius: 50%; border: 3px solid #fff; background: #fff; color: #111;
+    font-size: 22px; line-height: 1; cursor: pointer; box-shadow: 0 3px 12px rgba(0,0,0,0.45);
+    animation: powerPulse 0.9s ease-in-out infinite; touch-action: none;
+  }
+  .powerbtn.on { display: block; }
+  @keyframes powerPulse { 0%,100% { transform: translateX(-50%) scale(1); box-shadow: 0 3px 12px rgba(0,0,0,0.45); } 50% { transform: translateX(-50%) scale(1.14); box-shadow: 0 0 18px rgba(255,210,63,0.9); } }
 
   .stage {
     position: relative;
@@ -48,6 +57,7 @@
   .overlay.winbar { background: transparent; backdrop-filter: none; justify-content: flex-end; pointer-events: none; padding-bottom: 18px; }
   .winbtns { display: flex; gap: 10px; pointer-events: auto; }
   .overlay h2 { margin: 0; font-size: clamp(18px, 4vw, 26px); }
+  .menucredit { margin-top: -4px; font-size: 13px; font-weight: 800; color: #ffd23f; letter-spacing: 0.5px; }
   .overlay .sub { font-size: 13px; opacity: 0.8; margin-top: -6px; }
 
   .difficulty { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
@@ -127,11 +137,15 @@
   <div class="wrap">
     <div class="title">
       <h1>MLB <span class="red">RUNNER</span></h1>
+      <div class="byline">⚾ Made by Brooks ⚾</div>
       <p>Jump the baseballs. Duck the fastballs. Endless-runner, baseball style.</p>
     </div>
 
     <div class="stage">
       <canvas id="game" width="900" height="260"></canvas>
+
+      <!-- Secret-character power button (⚾) -->
+      <button class="powerbtn" id="powerBtn" title="Big Boy Powers!">⚾</button>
 
       <!-- On-screen controls for phones -->
       <div class="touch" id="touch">
@@ -142,6 +156,7 @@
       <!-- START MENU -->
       <div class="overlay" id="menu">
         <h2>⚾ Choose your slugger</h2>
+        <div class="menucredit">⚾ Made by Brooks ⚾</div>
         <div class="rowlbl">Version</div>
         <div class="difficulty" id="ver">
           <button class="diffbtn" data-ver="1">V1 · Classic</button>
@@ -165,7 +180,7 @@
         </div>
         <div class="actions">
           <button class="play" id="playBtn">Play Ball ▶</button>
-          <button class="ghost" id="surprise">🥚 Easter Egg</button>
+          <button class="ghost" id="surprise">💪 Big Boy Powers</button>
           <button class="ghost" id="fsBtn">⛶ Full Screen</button>
         </div>
       </div>
@@ -433,7 +448,8 @@
   const S = { MENU: 0, PLAYING: 1, OVER: 2, WIN: 3, PITCH: 4 };
   let state = S.MENU;
   let winTimer = 0, confetti = [];
-  let pitchPos = 0, pitchDir = 1, pitchMsg = "", pitchMsgT = 0;   // final "throw a strike" mini-game
+  let pitchPos = 0, pitchDir = 1, pitchMsg = "", pitchMsgT = 0;   // final at-bat mini-game
+  let hitPhase = false, hitT = 0, swingT = 0, curBallX = 0;
 
   let charIndex = Number(localStorage.getItem("mlbChar") || 0);
   if (charIndex < 0 || charIndex >= ROSTER.length) charIndex = 0;
@@ -563,20 +579,12 @@
   }
 
   // ======================= INPUT ==========================================
-  function registerJumpTap() {
-    const now = performance.now();
-    jumpTimes.push(now);
-    jumpTimes = jumpTimes.filter(t => now - t < 1500);
-    // secret powers: Brooks = 3 fast jumps -> BAT MODE; others = 5 fast jumps -> STAR POWER
+  // Secret-character cheat: click the ⚾ power button to unleash their superpower
+  function activatePower() {
     const ch = ROSTER[charIndex];
-    if (!ch.secret) return;
-    if (ch.power === "bat" && jumpTimes.length >= 3 && !batMode) {
-      batMode = true; ghostFlash = 60; jumpTimes = [];
-      if (richSound()) cheer(); else beep(660, 0.25, "square", 0.06);
-    } else if (ch.power !== "bat" && jumpTimes.length >= 5 && !starMode) {
-      activateStar(Infinity); ghostFlash = 60; jumpTimes = [];
-      if (richSound()) cheer(); else beep(880, 0.25, "triangle", 0.06);
-    }
+    if (state !== S.PLAYING || !ch.secret) return;
+    if (ch.power === "bat") { if (!batMode) { batMode = true; ghostFlash = 60; if (richSound()) cheer(); else beep(660, 0.25, "square", 0.06); } }
+    else { if (!starMode) { activateStar(Infinity); ghostFlash = 60; if (richSound()) cheer(); else beep(880, 0.25, "triangle", 0.06); } }
   }
   function doJump() {
     player.vy = JUMP_V; player.onGround = false; player.ducking = false;
@@ -586,7 +594,6 @@
   function jump() {
     if (state !== S.PLAYING || celebrating) return;
     jumpHeld = true;
-    registerJumpTap();
     if (player.onGround) doJump();
     else jumpBuffer = 9;   // tapped just before landing -> fire the instant we land
   }
@@ -640,6 +647,8 @@
   btnSlide.addEventListener("pointerdown", (e) => { e.preventDefault(); setDuck(true); });
   btnSlide.addEventListener("pointerup", (e) => { e.preventDefault(); setDuck(false); });
   btnSlide.addEventListener("pointerleave", () => setDuck(false));
+  const powerBtn = document.getElementById("powerBtn");
+  powerBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); activatePower(); });
 
   // Full-screen / immersive mode
   const touchEl = document.getElementById("touch");
@@ -1151,39 +1160,51 @@
     g.beginPath(); g.arc(x + r * 0.6, y, r, Math.PI - 0.5, Math.PI + 0.5); g.stroke();
     g.restore();
   }
-  // Final mini-game: throw a strike to win the World Series
-  function startPitch() { state = S.PITCH; pitchPos = 0; pitchDir = 1; pitchMsg = ""; pitchMsgT = 0; if (!playFile(SFX.playball)) chargeRiff(); }
-  function throwPitch() {
-    if (pitchPos >= 0.4 && pitchPos <= 0.6) {          // in the green zone -> STRIKE!
-      champShown = true; crack(); onChamp();
-    } else {
-      pitchMsg = "BALL! Try again"; pitchMsgT = 42; beep(180, 0.16, "sawtooth", 0.05);
-    }
+  // End-of-level AT BAT: a pitch comes in — press Space/tap to swing and time the HOME RUN
+  function startAtBat() { state = S.PITCH; pitchPos = 0; hitPhase = false; hitT = 0; swingT = 0; pitchMsg = ""; pitchMsgT = 0; }
+  function throwPitch() {   // = swing
+    if (state !== S.PITCH || hitPhase) return;
+    swingT = 9;
+    const bx = W * 0.27;
+    if (curBallX >= bx && curBallX <= bx + 116) { hitPhase = true; hitT = 0; crack(); sfxHomeRun(); }   // timed it!
+    else { pitchMsg = "Swing and a miss!"; pitchMsgT = 28; beep(200, 0.1, "square", 0.04); }
   }
   function drawPitch(dt) {
-    pitchPos += pitchDir * 0.017 * dt;
-    if (pitchPos >= 1) { pitchPos = 1; pitchDir = -1; }
-    if (pitchPos <= 0) { pitchPos = 0; pitchDir = 1; }
-    drawSky(); if (!LEVELS[levelIdx].night) drawClouds(); drawPark(); drawGround(groundOffset);
-    const zx = W * 0.5, zy = GROUND_Y - 66, zw = 130, zh = 96;
-    ctx.save();
-    // strike-zone box + green target band
-    ctx.fillStyle = "rgba(255,255,255,0.12)"; ctx.fillRect(zx - zw / 2, zy - zh / 2, zw, zh);
-    ctx.fillStyle = "rgba(55,224,106,0.4)"; ctx.fillRect(zx - zw * 0.1, zy - zh / 2, zw * 0.2, zh);
-    ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.strokeRect(zx - zw / 2, zy - zh / 2, zw, zh);
-    // sweeping ball marker + aim line
-    const mx = (zx - zw / 2) + pitchPos * zw;
-    ctx.strokeStyle = "rgba(255,255,255,0.55)"; ctx.setLineDash([4, 4]);
-    ctx.beginPath(); ctx.moveTo(mx, zy - zh / 2); ctx.lineTo(mx, zy + zh / 2 + 20); ctx.stroke(); ctx.setLineDash([]);
+    const night = LEVELS[levelIdx].night, bx = W * 0.27, feet = GROUND_Y;
+    drawSky(); if (!night) drawClouds(); drawPark(); drawGround(groundOffset);
+    if (swingT > 0) swingT -= dt;
+    // batter
+    drawRunner(ctx, bx, feet, ROSTER[charIndex], { duck: false, onGround: true, runFrame: 2 });
+    // bat: cocked, or swinging through
+    const ang = swingT > 0 ? (-1.15 + (1 - swingT / 9) * 2.7) : -1.15;
+    ctx.save(); ctx.translate(bx + 6, feet - 36); ctx.rotate(ang);
+    ctx.fillStyle = "#c8925a"; ctx.strokeStyle = "#5a3a17"; ctx.lineWidth = 1.6; ctx.lineJoin = "round";
+    roundRect(ctx, 0, -4, 36, 8, 4); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "#8a5a2a"; ctx.fillRect(-4, -3.5, 6, 7);
     ctx.restore();
-    drawPlainBall(mx, zy + zh / 2 + 30, 11);
-    // prompts
-    ctx.textAlign = "center";
-    ctx.fillStyle = "#ffd23f"; ctx.font = "bold 22px Arial"; ctx.lineWidth = 4; ctx.strokeStyle = "rgba(0,0,0,0.4)";
-    ctx.strokeText("THROW A STRIKE TO WIN!", W / 2, 40); ctx.fillText("THROW A STRIKE TO WIN!", W / 2, 40);
-    ctx.fillStyle = "rgba(255,255,255,0.92)"; ctx.font = "bold 13px Arial";
-    ctx.fillText("Tap / Space when the ball hits the green zone", W / 2, 60);
-    if (pitchMsgT > 0) { ctx.globalAlpha = Math.min(1, pitchMsgT / 22); ctx.fillStyle = "#ff6a6a"; ctx.font = "bold 26px Arial"; ctx.fillText(pitchMsg, W / 2, GROUND_Y - 6); ctx.globalAlpha = 1; pitchMsgT -= dt; }
+
+    if (!hitPhase) {
+      pitchPos += 0.012 * dt;
+      if (pitchPos >= 1) { pitchPos = 0; pitchMsg = "STRIKE!"; pitchMsgT = 32; if (!muted) beep(170, 0.14, "sawtooth", 0.05); }
+      curBallX = W * 0.9 - pitchPos * (W * 0.9 - (bx + 24));
+      // green "swing here" contact box
+      ctx.save(); ctx.strokeStyle = "rgba(55,224,106,0.85)"; ctx.lineWidth = 2.5; ctx.setLineDash([6, 4]);
+      ctx.strokeRect(bx, feet - 64, 116, 48); ctx.setLineDash([]); ctx.restore();
+      drawPlainBall(curBallX, feet - 40, 10);
+    } else {
+      hitT += dt;
+      const q = Math.min(1, hitT / 46);
+      const ballx = (bx + 34) + q * (W * 0.82), bally = (feet - 40) - Math.sin(q * 1.12) * 158;
+      ctx.globalAlpha = 0.4; drawPlainBall(ballx - 12, bally + 7, 6 * (1 - q * 0.4)); ctx.globalAlpha = 1;
+      drawPlainBall(ballx, bally, 11 * (1 - q * 0.3));
+      if (hitT >= 46) { if (levelIdx < LEVELS.length - 1) advanceLevel(); else { champShown = true; onChamp(); } return; }
+    }
+    // text
+    ctx.textAlign = "center"; ctx.lineWidth = 4; ctx.strokeStyle = "rgba(0,0,0,0.4)";
+    const title = hitPhase ? "💥 HOME RUN!" : "STEP UP TO BAT!";
+    ctx.font = "bold 24px Arial"; ctx.strokeText(title, W / 2, 42); ctx.fillStyle = "#ffd23f"; ctx.fillText(title, W / 2, 42);
+    if (!hitPhase) { ctx.fillStyle = "rgba(255,255,255,0.92)"; ctx.font = "bold 13px Arial"; ctx.fillText("Press SPACE / tap to SWING when the ball's in the green box!", W / 2, 62); }
+    if (pitchMsgT > 0) { ctx.globalAlpha = Math.min(1, pitchMsgT / 20); ctx.fillStyle = "#ff6a6a"; ctx.font = "bold 24px Arial"; ctx.fillText(pitchMsg, W / 2, feet - 96); ctx.globalAlpha = 1; pitchMsgT -= dt; }
   }
   // Level-clear cutscene: player takes a swing and BOMBS a pitch for a home run
   function drawHomeRunScene(p) {
@@ -1393,10 +1414,8 @@
           if (fin && !fin.resolved) {
             const dx = player.x - fin.x, invincible = starMode || batMode;
             if ((invincible || !player.onGround) && Math.abs(dx) <= fin.bridgeHalf) {
-              // jumped the bridge (or invincible power carries you across the water)
-              fin.resolved = true; goalActive = false;
-              if (levelIdx < LEVELS.length - 1) { levelIdx++; onLevelUp(); }
-              else { startPitch(); }                       // final level -> throw a strike to win
+              // crossed the bridge -> step up to bat and swing for the home run
+              fin.resolved = true; goalActive = false; startAtBat();
             } else if (!invincible && player.onGround && Math.abs(dx) <= fin.waterHalf) {
               fin.resolved = true; fallBack();   // splash — back one inning
             }
@@ -1466,6 +1485,7 @@
     }
 
     if (touchEl) touchEl.classList.toggle("on", isTouch && state === S.PLAYING);
+    if (powerBtn) powerBtn.classList.toggle("on", state === S.PLAYING && ROSTER[charIndex].secret && !batMode && !starMode);
 
     requestAnimationFrame(frame);
   }
