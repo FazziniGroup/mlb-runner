@@ -89,6 +89,26 @@
   .hint b { opacity: 0.9; }
   kbd { background: #1d2a3a; border: 1px solid #33475f; border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; font-size: 11px; font-family: inherit; }
 
+  /* On-screen touch controls (mobile) */
+  .touch { position: absolute; left: 0; right: 0; bottom: 0; display: none; justify-content: space-between; padding: 10px 12px; pointer-events: none; z-index: 40; }
+  .touch.on { display: flex; }
+  .tbtn {
+    pointer-events: auto; min-width: 96px; height: 62px; border-radius: 16px;
+    border: 2px solid rgba(255,255,255,0.7); background: rgba(10,18,30,0.42); color: #fff;
+    font-weight: 800; font-size: 15px; letter-spacing: 0.5px; -webkit-user-select: none; user-select: none; touch-action: none;
+  }
+  .tbtn:active { background: rgba(255,255,255,0.32); transform: scale(0.96); }
+
+  /* Immersive / full-screen mode (optimized for phones) */
+  body.immersive .title, body.immersive .hint { display: none; }
+  body.immersive .wrap { padding: 0; gap: 0; min-height: 100dvh; }
+  body.immersive .stage { border-radius: 0; box-shadow: none; width: min(100vw, calc(100dvh * 3.4615)); max-width: none; }
+  /* portrait phone: rotate the game to landscape so it fills the screen */
+  body.immersive.portrait .stage {
+    position: fixed; top: 50%; left: 50%; width: 100dvh; max-width: none;
+    transform: translate(-50%, -50%) rotate(90deg); transform-origin: center center;
+  }
+
   /* Small / short screens: shrink chrome so the game + menu always fit */
   @media (max-width: 560px), (max-height: 620px) {
     .title p { display: none; }
@@ -112,6 +132,12 @@
 
     <div class="stage">
       <canvas id="game" width="900" height="260"></canvas>
+
+      <!-- On-screen controls for phones -->
+      <div class="touch" id="touch">
+        <button class="tbtn" id="btnSlide">SLIDE ⤓</button>
+        <button class="tbtn" id="btnJump">⤒ JUMP</button>
+      </div>
 
       <!-- START MENU -->
       <div class="overlay" id="menu">
@@ -140,6 +166,7 @@
         <div class="actions">
           <button class="play" id="playBtn">Play Ball ▶</button>
           <button class="ghost" id="surprise">🥚 Easter Egg</button>
+          <button class="ghost" id="fsBtn">⛶ Full Screen</button>
         </div>
       </div>
 
@@ -385,9 +412,9 @@
 
   const GRAVITY = 0.62, JUMP_V = -10.8;
   const player = { x: 92, y: GROUND_Y, vy: 0, ducking: false, onGround: true, runFrame: 0 };
-  let jumpHeld = false, jumpHoldFrames = 0;          // hold jump = float higher (clear 2)
+  let jumpHeld = false, jumpHoldFrames = 0, jumpBuffer = 0;   // hold=float; buffer=reliable taps
   let celebrating = false, celebrateTimer = 0;        // brief between-level celebration
-  let invisibleMode = false, jumpTimes = [], ghostFlash = 0;   // secret: 5 fast jumps = invisible
+  let starMode = false, jumpTimes = [], ghostFlash = 0, crushBursts = [];   // secret: 5 fast jumps = star power
   // team badges for the big inning-style header
   const BADGE = { Braves: ["#13274f", "A"], Phillies: ["#e81828", "P"], Dodgers: ["#005a9c", "LA"], Rays: ["#092c5c", "TB"], "Red Sox": ["#bd3039", "B"], Yankees: ["#0c2340", "NY"] };
   const ORD = ["1ST", "2ND", "3RD", "4TH", "5TH", "6TH"];
@@ -419,7 +446,7 @@
     oppTeams = TEAMS.filter(t => t.abbr !== me.abbr);
     if (oppTeams.length === 0) oppTeams = TEAMS;
     levelIdx = 0; champShown = false; levelFlash = 0; makeStars();
-    invisibleMode = false; jumpTimes = []; ghostFlash = 0;
+    starMode = false; jumpTimes = []; ghostFlash = 0; crushBursts = [];
     stopWinMusic();
     menuEl.classList.add("hidden"); gameoverEl.classList.add("hidden"); winEl.classList.add("hidden");
     if (richSound()) { ensureAudio(); startCrowd(); startBall(); }
@@ -485,16 +512,23 @@
     const now = performance.now();
     jumpTimes.push(now);
     jumpTimes = jumpTimes.filter(t => now - t < 1500);
-    // secret characters: 5 fast jumps -> invisible for the rest of the run, hehehe
-    if (jumpTimes.length >= 5 && ROSTER[charIndex].secret && !invisibleMode) {
-      invisibleMode = true; ghostFlash = 48; jumpTimes = [];
-      if (richSound()) cheer(); else beep(300, 0.2, "sine", 0.05);
+    // secret characters: 5 fast jumps -> STAR POWER (invincible + crush) for the run
+    if (jumpTimes.length >= 5 && ROSTER[charIndex].secret && !starMode) {
+      starMode = true; ghostFlash = 60; jumpTimes = [];
+      if (richSound()) cheer(); else beep(880, 0.25, "triangle", 0.06);
     }
+  }
+  function doJump() {
+    player.vy = JUMP_V; player.onGround = false; player.ducking = false;
+    jumpHoldFrames = 0; jumpBuffer = 0;
+    if (richSound()) crack(); else beep(520, 0.09, "square", 0.045);
   }
   function jump() {
     if (state !== S.PLAYING || celebrating) return;
+    jumpHeld = true;
     registerJumpTap();
-    if (player.onGround) { player.vy = JUMP_V; player.onGround = false; player.ducking = false; jumpHeld = true; jumpHoldFrames = 0; if (richSound()) crack(); else beep(520, 0.09, "square", 0.045); }
+    if (player.onGround) doJump();
+    else jumpBuffer = 9;   // tapped just before landing -> fire the instant we land
   }
   function setDuck(on) {
     if (state !== S.PLAYING) return;
@@ -524,15 +558,43 @@
     if (e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyW") { jumpHeld = false; if (player.vy < -4.5) player.vy = -4.5; } // release = short hop
   });
 
+  const isTouch = (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) || ("ontouchstart" in window);
+  // Desktop/mouse: tap top = jump, hold bottom = slide. (Phones use the on-screen buttons.)
   canvas.addEventListener("pointerdown", (e) => {
-    if (state !== S.PLAYING) return;
+    if (state !== S.PLAYING || isTouch) return;
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
     const ry = (e.clientY - rect.top) / rect.height;
-    if (ry > 0.62) setDuck(true); else jump();   // holding either keeps it (long jump / long slide)
+    if (ry > 0.62) setDuck(true); else jump();
   });
-  canvas.addEventListener("pointerup", () => { setDuck(false); jumpHeld = false; if (player.vy < -4.5) player.vy = -4.5; });
+  canvas.addEventListener("pointerup", () => { if (isTouch) return; setDuck(false); jumpHeld = false; if (player.vy < -4.5) player.vy = -4.5; });
   canvas.addEventListener("pointercancel", () => { setDuck(false); jumpHeld = false; });
+
+  // On-screen JUMP / SLIDE buttons (reliable touch input)
+  const btnJump = document.getElementById("btnJump"), btnSlide = document.getElementById("btnSlide");
+  btnJump.addEventListener("pointerdown", (e) => { e.preventDefault(); jump(); });
+  btnJump.addEventListener("pointerup", (e) => { e.preventDefault(); jumpHeld = false; if (player.vy < -4.5) player.vy = -4.5; });
+  btnJump.addEventListener("pointerleave", () => { jumpHeld = false; });
+  btnSlide.addEventListener("pointerdown", (e) => { e.preventDefault(); setDuck(true); });
+  btnSlide.addEventListener("pointerup", (e) => { e.preventDefault(); setDuck(false); });
+  btnSlide.addEventListener("pointerleave", () => setDuck(false));
+
+  // Full-screen / immersive mode
+  const touchEl = document.getElementById("touch");
+  function updatePortrait() { document.body.classList.toggle("portrait", window.innerHeight > window.innerWidth); }
+  window.addEventListener("resize", updatePortrait);
+  window.addEventListener("orientationchange", updatePortrait);
+  updatePortrait();
+  function toggleFullscreen() {
+    const goingIn = !document.body.classList.contains("immersive");
+    document.body.classList.toggle("immersive", goingIn);
+    updatePortrait(); fitDPR();
+    try {
+      if (goingIn) { const el = document.documentElement; (el.requestFullscreen || el.webkitRequestFullscreen || function () {}).call(el); }
+      else { (document.exitFullscreen || document.webkitExitFullscreen || function () {}).call(document); }
+    } catch (e) {}
+  }
+  document.addEventListener("fullscreenchange", () => { if (!document.fullscreenElement) document.body.classList.remove("immersive"); updatePortrait(); });
 
   // ======================= DRAW: baseball =================================
   function roundRect(g, x, y, w, h, r) {
@@ -911,6 +973,21 @@
     g.strokeStyle = "#b8901f"; g.lineWidth = 1; g.stroke();
     g.restore();
   }
+  function drawStarGlow(cx, feetY) {
+    const t = performance.now() * 0.006;
+    const cy = feetY - 26, r = 34 + Math.sin(t * 3) * 5, hue = (t * 90) % 360;
+    const g = ctx.createRadialGradient(cx, cy, 3, cx, cy, r);
+    g.addColorStop(0, "hsla(" + hue + ",100%,72%,0.6)");
+    g.addColorStop(1, "hsla(" + hue + ",100%,72%,0)");
+    ctx.save(); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+    for (let i = 0; i < 5; i++) {
+      const a = t * 4 + i * (Math.PI * 2 / 5);
+      const sx = cx + Math.cos(a) * r * 0.72, sy = cy + Math.sin(a) * r * 0.72;
+      ctx.fillStyle = "hsl(" + ((hue + i * 60) % 360) + ",100%,75%)";
+      ctx.save(); ctx.translate(sx, sy); ctx.rotate(a); ctx.fillRect(-2, -2, 4, 4); ctx.restore();
+    }
+    ctx.restore();
+  }
   function drawCelebration(dt) {
     winTimer += dt;
     drawSky(); if (!LEVELS[levelIdx].night) drawClouds(); drawPark(); drawGround(groundOffset);
@@ -1004,7 +1081,8 @@
         let gg = GRAVITY;
         if (jumpHeld && player.vy < 0 && jumpHoldFrames < 13) { gg *= 0.60; jumpHoldFrames += dt; }
         player.vy += gg * dt; player.y += player.vy * dt;
-        if (player.y >= GROUND_Y) { player.y = GROUND_Y; player.vy = 0; player.onGround = true; }
+        if (player.y >= GROUND_Y) { player.y = GROUND_Y; player.vy = 0; player.onGround = true; if (jumpBuffer > 0) doJump(); }
+        if (jumpBuffer > 0) jumpBuffer -= dt;
 
         // stride cadence: scales gently with speed, capped so it never flickers
         if (player.onGround) player.runFrame += Math.min(0.30, 0.045 * speed) * dt;
@@ -1020,14 +1098,26 @@
         groundOffset += speed * dt;
 
         const pb = playerBox();
-        for (const o of obstacles) {
-          if (hit(pb, o)) {
-            state = S.OVER; if (richSound()) groan(); else beep(140, 0.3, "sawtooth", 0.06);
-            if (score > high) { high = score; localStorage.setItem("mlbHigh", String(high)); }
-            goTitle.textContent = ROSTER[charIndex].name.split(" ")[0] + " struck out!";
-            goScore.textContent = "Score " + Math.floor(score) + "  ·  High " + Math.floor(high);
-            gameoverEl.classList.remove("hidden");
-            break;
+        if (starMode) {
+          // ⭐ invincible: crush anything you touch, no damage
+          for (const o of obstacles) {
+            if (!o.crushed && hit(pb, o)) {
+              o.crushed = true; score += 5;
+              crushBursts.push({ x: o.x, y: o.baseY - o.h / 2 + (o.bobY || 0), t: 16 });
+              beep(760, 0.05, "square", 0.04);
+            }
+          }
+          obstacles = obstacles.filter(o => !o.crushed);
+        } else {
+          for (const o of obstacles) {
+            if (hit(pb, o)) {
+              state = S.OVER; if (richSound()) groan(); else beep(140, 0.3, "sawtooth", 0.06);
+              if (score > high) { high = score; localStorage.setItem("mlbHigh", String(high)); }
+              goTitle.textContent = ROSTER[charIndex].name.split(" ")[0] + " struck out!";
+              goScore.textContent = "Score " + Math.floor(score) + "  ·  High " + Math.floor(high);
+              gameoverEl.classList.remove("hidden");
+              break;
+            }
           }
         }
       }
@@ -1040,11 +1130,19 @@
     drawPark();
     drawGround(groundOffset);
     for (const o of obstacles) drawObstacle(o);
+    for (const b of crushBursts) {
+      const k = 1 - b.t / 16; ctx.globalAlpha = Math.max(0, b.t / 16);
+      ctx.strokeStyle = "hsl(" + ((performance.now() * 0.3 + b.x) % 360) + ",100%,65%)"; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(b.x, b.y, 6 + k * 24, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1; b.t -= dt;
+    }
+    crushBursts = crushBursts.filter(b => b.t > 0);
     if (state !== S.MENU) {
       let feetY = player.y, cheer = false;
       if (celebrating) { feetY = GROUND_Y - Math.abs(Math.sin(celebrateTimer * 0.35)) * 16; cheer = true; }
-      if (!invisibleMode) drawRunner(ctx, player.x, feetY, ROSTER[charIndex],
-        { duck: player.ducking, onGround: player.onGround, runFrame: player.runFrame, cheer });
+      if (starMode) drawStarGlow(player.x, feetY);
+      drawRunner(ctx, player.x, feetY, ROSTER[charIndex],
+        { duck: player.ducking, onGround: player.onGround, runFrame: player.runFrame, cheer, star: starMode });
       drawHUD();
     }
 
@@ -1067,10 +1165,13 @@
 
     if (ghostFlash > 0) {
       ctx.globalAlpha = Math.min(1, ghostFlash / 24);
-      ctx.fillStyle = "#8fd3ff"; ctx.textAlign = "center"; ctx.font = "bold 22px Arial";
-      ctx.fillText("👻 INVISIBLE MODE!", W / 2, 84);
+      ctx.textAlign = "center"; ctx.font = "bold 24px Arial";
+      ctx.lineWidth = 4; ctx.strokeStyle = "rgba(0,0,0,0.4)"; ctx.strokeText("⭐ STAR POWER! ⭐", W / 2, 88);
+      ctx.fillStyle = "hsl(" + ((performance.now() * 0.5) % 360) + ",100%,60%)"; ctx.fillText("⭐ STAR POWER! ⭐", W / 2, 88);
       ctx.globalAlpha = 1; ghostFlash -= dt;
     }
+
+    if (touchEl) touchEl.classList.toggle("on", isTouch && state === S.PLAYING);
 
     requestAnimationFrame(frame);
   }
@@ -1130,6 +1231,7 @@
   document.getElementById("menuBtn").onclick = toMenu;
   document.getElementById("winAgain").onclick = startGame;
   document.getElementById("winMenu").onclick = toMenu;
+  document.getElementById("fsBtn").onclick = toggleFullscreen;
   const secretIdxs = ROSTER.map((c, i) => c.secret ? i : -1).filter(i => i >= 0);
   let secretPick = -1;
   document.getElementById("surprise").onclick = () => {
