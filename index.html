@@ -448,6 +448,7 @@
   let jumpHeld = false, jumpHoldFrames = 0, jumpBuffer = 0;   // hold=float; buffer=reliable taps
   let celebrating = false, celebrateTimer = 0;        // level-clear home-run cutscene
   const CELEB_LEN = 84;
+  let goalActive = false;                             // home-plate goal at the end of a level
   let starMode = false, jumpTimes = [], ghostFlash = 0, crushBursts = [];   // secret: 5 fast jumps = star power
   let starTimer = 0;                 // >0 = timed star (golden bat); Infinity = permanent (secret)
   let floaters = [], treatsLeft = 0, batLeft = 0;   // pickups + golden bat
@@ -487,7 +488,7 @@
     if (oppTeams.length === 0) oppTeams = TEAMS;
     levelIdx = 0; champShown = false; levelFlash = 0; makeStars();
     starMode = false; starTimer = 0; jumpTimes = []; ghostFlash = 0; crushBursts = []; floaters = [];
-    sizeLevel = 0; iframes = 0; hrSoundPlayed = false;
+    sizeLevel = 0; iframes = 0; hrSoundPlayed = false; goalActive = false;
     resetLevelSpawns();
     stopWinMusic();
     menuEl.classList.add("hidden"); gameoverEl.classList.add("hidden"); winEl.classList.add("hidden");
@@ -498,7 +499,7 @@
   function onLevelUp() {
     speed = Math.min(effMax(), speed + 0.4); makeStars();
     obstacles = []; spawnGap = 320; resetLevelSpawns();
-    celebrating = true; celebrateTimer = CELEB_LEN; hrSoundPlayed = false; levelFlash = 0;
+    celebrating = true; celebrateTimer = CELEB_LEN; hrSoundPlayed = false; levelFlash = 0; goalActive = false;
     beep(784, 0.1, "sine", 0.05);   // pleasant level-clear ding; HOME RUN sound plays at contact
   }
   function makeConfetti() {
@@ -524,19 +525,21 @@
     const minGap = speed * cfg.reactFrames;      // must-clear reaction distance
     return minGap + Math.random() * cfg.gapExtra;
   }
+  function spawnGoal() { obstacles.push({ type: "goal", x: W + 70, w: 66, h: 48, baseY: GROUND_Y, bobY: 0 }); }
   function spawnObstacle() {
+    if (goalActive) return;   // home plate is out — no more hazards this level
     const L = LEVELS[levelIdx];
     // GOLDEN BAT power-up (levels 5 & 6, rare) — grants 5s of star power to anyone
     if (batLeft > 0 && Math.random() < 0.13) {
       batLeft--;
-      obstacles.push({ type: "goldenbat", pickup: true, x: W + 24, w: 40, h: 30, baseY: GROUND_Y - 66, bob: Math.random() * 6.28, bobY: 0, amp: 5 });
+      obstacles.push({ type: "goldenbat", pickup: true, x: W + 24, w: 44, h: 34, baseY: GROUND_Y - 74, bob: Math.random() * 6.28, bobY: 0, amp: 5 });
       spawnGap = nextGap(); return;
     }
-    // TREAT pickups (1-2 per level) — up HIGH so you jump for them; collect to GROW
+    // TREAT pickups (1-2 per level) — up HIGH, time a full jump; collect to GROW
     if (treatsLeft > 0 && Math.random() < 0.15) {
       treatsLeft--;
       const t = PICKUPS[(Math.random() * PICKUPS.length) | 0];
-      obstacles.push({ type: t, pickup: true, x: W + 24, w: 34, h: 34, baseY: GROUND_Y - 70, bob: Math.random() * 6.28, bobY: 0, amp: 4 });
+      obstacles.push({ type: t, pickup: true, x: W + 24, w: 40, h: 40, baseY: GROUND_Y - 80, bob: Math.random() * 6.28, bobY: 0, amp: 5 });
       spawnGap = nextGap(); return;
     }
     // AIR: big MEAN baseballs — hold SLIDE under them
@@ -550,9 +553,9 @@
       }
       spawnGap = nextGap(); return;
     }
-    // GROUND: umpires (identical every level). Occasional pair — hold JUMP for both.
-    const pushUmp = (x) => obstacles.push({ type: "ump", x, w: 36, h: 50, baseY: GROUND_Y, bobY: 0 });
-    if (levelIdx >= 2 && Math.random() < 0.16) { pushUmp(W + 22); pushUmp(W + 22 + 112); }
+    // GROUND: big mean umpires (25% larger). Occasional pair — hold JUMP for both.
+    const pushUmp = (x) => obstacles.push({ type: "ump", x, w: 45, h: 62, baseY: GROUND_Y, bobY: 0 });
+    if (levelIdx >= 2 && Math.random() < 0.16) { pushUmp(W + 22); pushUmp(W + 22 + 124); }
     else pushUmp(W + 22);
     spawnGap = nextGap();
   }
@@ -689,6 +692,7 @@
   // ======================= DRAW: obstacles (the bad guys) =================
   function drawObstacle(o) {
     const oy = o.bobY || 0;
+    if (o.type === "goal") { drawGoal(o); return; }
     if (o.type === "ball") { drawTeamBall(o.x, o.baseY - o.h / 2 + oy, o.w / 2, o.team); return; }
     if (o.type === "ump") {
       ctx.save(); ctx.fillStyle = "rgba(0,0,0,0.20)";
@@ -701,33 +705,55 @@
     else drawFood(o.type, o.x, o.baseY + oy, o.w, o.h);
   }
 
-  // Big MEAN baseball — bold outline, seams, angry face (clearly a bad guy)
+  // shared angry face — used by the baseballs AND the umpires
+  function drawMeanFace(g, cx, cy, r) {
+    g.lineCap = "round";
+    g.strokeStyle = "#141414"; g.lineWidth = Math.max(2, r * 0.17);
+    g.beginPath(); g.moveTo(cx - r * 0.5, cy - r * 0.44); g.lineTo(cx - r * 0.1, cy - r * 0.2); g.stroke();
+    g.beginPath(); g.moveTo(cx + r * 0.5, cy - r * 0.44); g.lineTo(cx + r * 0.1, cy - r * 0.2); g.stroke();
+    g.fillStyle = "#fff"; g.strokeStyle = "#141414"; g.lineWidth = 1.5;
+    g.beginPath(); g.arc(cx - r * 0.26, cy - r * 0.05, r * 0.18, 0, Math.PI * 2); g.fill(); g.stroke();
+    g.beginPath(); g.arc(cx + r * 0.26, cy - r * 0.05, r * 0.18, 0, Math.PI * 2); g.fill(); g.stroke();
+    g.fillStyle = "#111";
+    g.beginPath(); g.arc(cx - r * 0.2, cy - r * 0.01, r * 0.09, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.arc(cx + r * 0.32, cy - r * 0.01, r * 0.09, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = "#141414"; g.lineWidth = Math.max(1.8, r * 0.14);
+    g.beginPath(); g.arc(cx, cy + r * 0.82, r * 0.34, Math.PI * 1.18, Math.PI * 1.82); g.stroke();
+  }
+  // Big MEAN baseball — bold outline, seams, angry face
   function drawTeamBall(cx, cy, r, team) {
     const g = ctx; g.save();
-    // drop shadow ring for pop
     g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2);
     const rg = g.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.2, cx, cy, r);
     rg.addColorStop(0, "#ffffff"); rg.addColorStop(1, "#eceae4");
     g.fillStyle = rg; g.fill();
-    g.lineWidth = 3; g.strokeStyle = "#181818"; g.stroke();      // bold outline
-    // faint seams
+    g.lineWidth = 3; g.strokeStyle = "#181818"; g.stroke();
     g.strokeStyle = "#d24a4a"; g.lineWidth = 2; g.lineCap = "round";
     g.beginPath(); g.moveTo(cx - r * 0.62, cy - r * 0.78); g.quadraticCurveTo(cx - r * 0.98, cy, cx - r * 0.62, cy + r * 0.78); g.stroke();
     g.beginPath(); g.moveTo(cx + r * 0.62, cy - r * 0.78); g.quadraticCurveTo(cx + r * 0.98, cy, cx + r * 0.62, cy + r * 0.78); g.stroke();
-    // angry eyebrows
-    g.strokeStyle = "#141414"; g.lineWidth = 3.2; g.lineCap = "round";
-    g.beginPath(); g.moveTo(cx - r * 0.5, cy - r * 0.44); g.lineTo(cx - r * 0.1, cy - r * 0.2); g.stroke();
-    g.beginPath(); g.moveTo(cx + r * 0.5, cy - r * 0.44); g.lineTo(cx + r * 0.1, cy - r * 0.2); g.stroke();
-    // eyes
-    g.fillStyle = "#fff"; g.strokeStyle = "#141414"; g.lineWidth = 1.5;
-    g.beginPath(); g.arc(cx - r * 0.26, cy - r * 0.06, r * 0.17, 0, Math.PI * 2); g.fill(); g.stroke();
-    g.beginPath(); g.arc(cx + r * 0.26, cy - r * 0.06, r * 0.17, 0, Math.PI * 2); g.fill(); g.stroke();
-    g.fillStyle = "#111";
-    g.beginPath(); g.arc(cx - r * 0.2, cy - r * 0.02, r * 0.08, 0, Math.PI * 2); g.fill();
-    g.beginPath(); g.arc(cx + r * 0.32, cy - r * 0.02, r * 0.08, 0, Math.PI * 2); g.fill();
-    // grimace mouth (frown with teeth)
-    g.strokeStyle = "#141414"; g.lineWidth = 2.6;
-    g.beginPath(); g.arc(cx, cy + r * 0.78, r * 0.34, Math.PI * 1.18, Math.PI * 1.82); g.stroke();
+    drawMeanFace(g, cx, cy, r);
+    g.restore();
+  }
+  // Home-plate goal (with a water moat) — touch it to finish the inning
+  function drawGoal(o) {
+    const g = ctx, cx = o.x, baseY = o.baseY, w = o.w * 0.5;
+    g.save();
+    // water moat
+    g.fillStyle = "#2f7fd6";
+    g.beginPath(); g.ellipse(cx, baseY, o.w * 0.8, 12, 0, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = "rgba(255,255,255,0.55)"; g.lineWidth = 1.5;
+    const rip = performance.now() * 0.004;
+    for (let i = 0; i < 2; i++) { g.beginPath(); g.ellipse(cx, baseY, o.w * 0.45 + i * 12 + Math.sin(rip + i) * 3, 6 + i * 2, 0, 0.2, Math.PI - 0.2); g.stroke(); }
+    // home plate (white pentagon)
+    const topY = baseY - o.h, midY = baseY - o.h * 0.42, botY = baseY - 3;
+    g.beginPath(); g.moveTo(cx - w, topY); g.lineTo(cx + w, topY); g.lineTo(cx + w, midY); g.lineTo(cx, botY); g.lineTo(cx - w, midY); g.closePath();
+    g.fillStyle = "#fff"; g.fill(); g.lineWidth = 3; g.strokeStyle = "#111"; g.stroke();
+    g.restore();
+    // flashing prompt
+    const a = 0.6 + 0.4 * Math.sin(performance.now() * 0.008);
+    g.save(); g.globalAlpha = a; g.textAlign = "center";
+    g.font = "bold 15px Arial"; g.lineWidth = 3; g.strokeStyle = "rgba(0,0,0,0.45)";
+    g.strokeText("TOUCH HOME PLATE!", cx, topY - 12); g.fillStyle = "#ffd23f"; g.fillText("TOUCH HOME PLATE!", cx, topY - 12);
     g.restore();
   }
 
@@ -773,14 +799,13 @@
     g.fillStyle = accent; g.fillRect(-hw * 0.66, -h * 0.46, w * 0.66, 3);   // level-color accent stripe
     g.strokeStyle = "#000"; g.lineWidth = 1.5;
     for (let i = 1; i <= 2; i++) { const yy = -h * 0.74 + i * h * 0.14; g.beginPath(); g.moveTo(-hw * 0.66, yy); g.lineTo(-hw * 0.66 + w * 0.66, yy); g.stroke(); }
-    // head: skin + black cap + WHITE mask cage, outlined
-    const hy = -h * 0.84, hr = h * 0.16;
+    // head: skin + MEAN face (same as the baseballs) + black cap
+    const hy = -h * 0.82, hr = h * 0.2;
     g.strokeStyle = "#000"; g.lineWidth = 2;
     g.fillStyle = "#8a5a3b"; g.beginPath(); g.arc(0, hy, hr, 0, Math.PI * 2); g.fill(); g.stroke();
-    g.fillStyle = "#0c0c0c"; g.beginPath(); g.arc(0, hy, hr * 1.18, Math.PI, Math.PI * 2); g.closePath(); g.fill();
-    g.strokeStyle = "#f2f4f7"; g.lineWidth = 1.7;
-    g.beginPath(); g.arc(0, hy + h * 0.02, hr, -0.4, Math.PI + 0.4); g.stroke();
-    for (let i = -1; i <= 1; i++) { g.beginPath(); g.moveTo(i * hr * 0.5, hy - hr * 0.7); g.lineTo(i * hr * 0.5, hy + hr * 0.95); g.stroke(); }
+    drawMeanFace(g, 0, hy + hr * 0.12, hr * 0.95);
+    g.fillStyle = "#0c0c0c"; g.beginPath(); g.arc(0, hy - hr * 0.35, hr * 1.02, Math.PI * 1.02, Math.PI * 1.98); g.closePath(); g.fill();
+    g.fillRect(-hr * 1.45, hy - hr * 0.52, hr * 1.35, hr * 0.34);   // brim
     g.restore();
   }
 
@@ -1210,9 +1235,8 @@
         if (Math.floor(newScore / 100) > Math.floor(score / 100)) { flashMilestone = 22; if (!richSound()) beep(880, 0.12, "sine", 0.06); }
         score = newScore;
 
-        // level progression
-        if (levelIdx < LEVELS.length - 1 && score >= LEVELS[levelIdx].target) { levelIdx++; onLevelUp(); }
-        else if (levelIdx === LEVELS.length - 1 && !champShown && score >= LEVELS[levelIdx].target) { champShown = true; onChamp(); }
+        // reach the target -> a home-plate goal appears; touch it to finish the inning
+        if (!goalActive && !champShown && score >= LEVELS[levelIdx].target) { goalActive = true; spawnGoal(); }
 
         // gravity — holding jump while rising floats you higher (clear 2 in a row)
         let gg = GRAVITY;
@@ -1239,6 +1263,7 @@
           if (o.amp) { o.bob += 0.10 * dt; o.bobY = Math.sin(o.bob) * o.amp; }
         }
         obstacles = obstacles.filter(o => o.x > -80);
+        if (goalActive && !obstacles.some(o => o.type === "goal")) spawnGoal();   // keep it coming until touched
         groundOffset += speed * dt;
 
         if (iframes > 0) iframes -= dt;
@@ -1247,6 +1272,12 @@
         let died = false;
         for (const o of obstacles) {
           if (o.gone || !hit(pb, o)) continue;
+          if (o.type === "goal") {
+            o.gone = true; goalActive = false;
+            if (levelIdx < LEVELS.length - 1) { levelIdx++; onLevelUp(); }
+            else { champShown = true; onChamp(); }
+            break;
+          }
           if (o.type === "goldenbat") {
             o.gone = true; activateStar(300); ghostFlash = 40;
             floaters.push({ x: o.x, y: o.baseY - o.h, txt: "⚡ GOLDEN BAT!", t: 44, c: "#ffd23f" });
