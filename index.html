@@ -196,7 +196,7 @@
   // ======================= OPTIONAL REAL IMAGES ===========================
   // Drop files in img/players/<img>.png and img/logos/<abbr>.png to use them.
   // Missing files fall back to the drawn version automatically.
-  const ASSET_VER = "5";  // bump to force phones/browsers to reload images + audio
+  const ASSET_VER = "6";  // bump to force phones/browsers to reload images + audio
   function loadImg(src) { const im = new Image(); im.src = src + "?v=" + ASSET_VER; return im; }
   ROSTER.forEach(c => { c.face = loadImg("img/players/" + c.img + ".png"); });
   TEAMS.forEach(t => { t.logo = loadImg("img/logos/" + t.abbr.toLowerCase() + ".png"); });
@@ -218,6 +218,8 @@
     { team: "Yankees",  name: "Yankee Stadium",     id: "yankee", target: 13500, sky: ["#0b1430", "#1b2c58"], wall: "#0c2340", trim: "#ffffff", night: true,
       icons: ["JUDGE 99", "RUTH 3", "JETER 2", "MANTLE 7", "GEHRIG 4"] },
   ];
+  // Optional real stadium photos: drop stadiums/<id>.jpg to use as that level's backdrop.
+  LEVELS.forEach(L => { L.bg = loadImg("stadiums/" + L.id + ".jpg"); });
 
   // ======================= DIFFICULTY =====================================
   const DIFFS = {
@@ -394,13 +396,15 @@
     return minGap + Math.random() * cfg.gapExtra;
   }
   function spawnObstacle() {
-    const team = oppTeams[(Math.random() * oppTeams.length) | 0];
     const canFly = score >= cfg.flyStart;
     if (canFly && Math.random() < cfg.flyChance) {
-      obstacles.push({ type: "fly", x: W + 20, cy: GROUND_Y - 52, r: 14, team, bob: Math.random() * Math.PI * 2 });
+      // flying ump (arm up calling you OUT) — duck under it
+      const sc = 0.8 + Math.random() * 0.35;
+      obstacles.push({ type: "fly", x: W + 20, w: 26 * sc, h: 30 * sc, baseY: GROUND_Y - 34, bob: Math.random() * Math.PI * 2, bobY: 0 });
     } else {
-      const r = 15 + ((Math.random() * 5) | 0);
-      obstacles.push({ type: "ground", x: W + 20, cy: GROUND_Y - r, r, team });
+      // ground ump — sizes vary from little league to big-league boss
+      const sc = 0.72 + Math.random() * 0.95;
+      obstacles.push({ type: "ground", x: W + 20, w: 24 * sc, h: 36 * sc, baseY: GROUND_Y, bobY: 0 });
     }
     spawnGap = nextGap();
   }
@@ -485,6 +489,41 @@
         g.fillText(team.mark, x, y + 0.5);
       }
     }
+    g.restore();
+  }
+
+  // ======================= DRAW: umpire (the bad guy) =====================
+  function drawUmpire(cx, baseY, w, h, fly) {
+    const g = ctx; g.save(); g.translate(cx, baseY);
+    const hw = w / 2;
+    // legs + shoes
+    g.fillStyle = "#23262e";
+    g.fillRect(-hw * 0.55, -h * 0.34, w * 0.24, h * 0.34);
+    g.fillRect(hw * 0.10, -h * 0.34, w * 0.24, h * 0.34);
+    g.fillStyle = "#0c0c0c";
+    g.fillRect(-hw * 0.62, -h * 0.05, w * 0.32, h * 0.06);
+    g.fillRect(hw * 0.02, -h * 0.05, w * 0.32, h * 0.06);
+    // body (dark navy uniform) + chest protector
+    g.fillStyle = "#1b2733"; roundRect(g, -hw * 0.9, -h * 0.78, w * 0.9, h * 0.48, w * 0.14); g.fill();
+    g.fillStyle = "#3b4a5e"; roundRect(g, -hw * 0.7, -h * 0.74, w * 0.7, h * 0.40, w * 0.12); g.fill();
+    g.strokeStyle = "#1b2733"; g.lineWidth = 1.3;
+    for (let i = 1; i <= 2; i++) { const yy = -h * 0.74 + i * h * 0.13; g.beginPath(); g.moveTo(-hw * 0.7, yy); g.lineTo(-hw * 0.7 + w * 0.7, yy); g.stroke(); }
+    // arms
+    g.fillStyle = "#1b2733";
+    g.fillRect(-hw * 0.98, -h * 0.72, w * 0.16, h * 0.30);
+    if (fly) {
+      g.save(); g.translate(hw * 0.82, -h * 0.70); g.rotate(-0.95); g.fillRect(0, -h * 0.05, w * 0.16, h * 0.32); g.restore();
+      g.fillStyle = "#8a5a3b"; g.beginPath(); g.arc(hw * 0.98, -h * 0.94, w * 0.10, 0, Math.PI * 2); g.fill(); // OUT fist
+    } else {
+      g.fillRect(hw * 0.82, -h * 0.72, w * 0.16, h * 0.30);
+    }
+    // head + cap + mask cage
+    const hy = -h * 0.80, hr = h * 0.13;
+    g.fillStyle = "#8a5a3b"; g.beginPath(); g.arc(0, hy, hr, 0, Math.PI * 2); g.fill();
+    g.fillStyle = "#12151b"; g.beginPath(); g.arc(0, hy, hr * 1.15, Math.PI, Math.PI * 2); g.closePath(); g.fill();
+    g.strokeStyle = "#cfd3da"; g.lineWidth = 1.2;
+    g.beginPath(); g.arc(0, hy + h * 0.02, hr, -0.4, Math.PI + 0.4); g.stroke();
+    for (let i = -1; i <= 1; i++) { g.beginPath(); g.moveTo(i * hr * 0.5, hy - hr * 0.7); g.lineTo(i * hr * 0.5, hy + hr * 0.9); g.stroke(); }
     g.restore();
   }
 
@@ -616,8 +655,16 @@
   function shade(hex, f) { const c = hexToRgb(hex); return "rgb(" + Math.round(c.r * f) + "," + Math.round(c.g * f) + "," + Math.round(c.b * f) + ")"; }
   function tri(x, baseY, w, h) { ctx.beginPath(); ctx.moveTo(x, baseY); ctx.lineTo(x + w / 2, baseY - h); ctx.lineTo(x + w, baseY); ctx.closePath(); ctx.fill(); }
 
+  function coverDraw(img, dx, dy, dw, dh) {
+    const iw = img.naturalWidth, ih = img.naturalHeight; if (!iw) return;
+    const s = Math.max(dw / iw, dh / ih), w = iw * s, h = ih * s;
+    ctx.save(); ctx.beginPath(); ctx.rect(dx, dy, dw, dh); ctx.clip();
+    ctx.drawImage(img, dx + (dw - w) / 2, dy + (dh - h) / 2, w, h); ctx.restore();
+  }
   function drawPark() {
     const L = LEVELS[levelIdx];
+    // real stadium photo backdrop if provided
+    if (ready(L.bg)) { coverDraw(L.bg, 0, 0, W, GROUND_Y); return; }
     // grandstand band
     ctx.fillStyle = shade(L.wall, L.night ? 0.55 : 0.85);
     ctx.fillRect(0, 96, W, 60);
@@ -709,9 +756,13 @@
     if (player.ducking) return { x: player.x - 16, y: player.y - 26, w: 46, h: 26 };
     return { x: player.x - 10, y: player.y - 46, w: 22, h: 46 };
   }
+  function obBox(o) {
+    const pad = 3;
+    return { x: o.x - o.w / 2 + pad, y: o.baseY - o.h + pad + (o.bobY || 0), w: o.w - pad * 2, h: o.h - pad };
+  }
   function hit(a, o) {
-    const bx = o.x - o.r + 3, by = o.cy - o.r + 3, bw = o.r * 2 - 6, bh = o.r * 2 - 6;
-    return a.x < bx + bw && a.x + a.w > bx && a.y < by + bh && a.y + a.h > by;
+    const b = obBox(o);
+    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   }
 
   // ======================= LOOP ===========================================
@@ -740,8 +791,8 @@
       spawnGap -= speed * dt;
       if (spawnGap <= 0) spawnObstacle();
 
-      for (const o of obstacles) o.x -= speed * dt;
-      obstacles = obstacles.filter(o => o.x > -60);
+      for (const o of obstacles) { o.x -= speed * dt; if (o.type === "fly") { o.bob += 0.15 * dt; o.bobY = Math.sin(o.bob) * 3; } }
+      obstacles = obstacles.filter(o => o.x > -70);
       groundOffset += speed * dt;
 
       const pb = playerBox();
@@ -763,11 +814,7 @@
     if (!LEVELS[levelIdx].night) drawClouds();
     drawPark();
     drawGround(groundOffset);
-    for (const o of obstacles) {
-      let cy = o.cy;
-      if (o.type === "fly") { o.bob += 0.15 * dt; cy = o.cy + Math.sin(o.bob) * 2; }
-      drawBaseball(ctx, o.x, cy, o.r, o.team);
-    }
+    for (const o of obstacles) drawUmpire(o.x, o.baseY + (o.bobY || 0), o.w, o.h, o.type === "fly");
     if (state !== S.MENU) {
       drawRunner(ctx, player.x, player.y, ROSTER[charIndex],
         { duck: player.ducking, onGround: player.onGround, runFrame: player.runFrame });
