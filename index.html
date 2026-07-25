@@ -90,7 +90,7 @@
   kbd { background: #1d2a3a; border: 1px solid #33475f; border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; font-size: 11px; font-family: inherit; }
 
   /* On-screen touch controls (mobile) */
-  .touch { position: absolute; left: 0; right: 0; bottom: 0; display: none; justify-content: space-between; padding: 10px 12px; pointer-events: none; z-index: 40; }
+  .touch { position: absolute; left: 0; right: 0; bottom: 0; display: none; justify-content: flex-end; gap: 12px; padding: 10px 14px; pointer-events: none; z-index: 40; }
   .touch.on { display: flex; }
   .tbtn {
     pointer-events: auto; min-width: 96px; height: 62px; border-radius: 16px;
@@ -337,7 +337,7 @@
   function startCrowd() {
     ensureAudio();
     if (SFX.crowd._ok) { crowdFile = true; SFX.crowd.volume = muted ? 0 : 0.5; try { SFX.crowd.currentTime = 0; SFX.crowd.play(); } catch (e) {} return; }
-    if (!richSound() || !audioCtx) return; stopSynthCrowd();   // synth crowd only in V3
+    if (!audioCtx) return; stopSynthCrowd();   // synth crowd (all versions, low volume)
     crowdSrc = audioCtx.createBufferSource(); crowdSrc.buffer = noiseBuffer(2.2); crowdSrc.loop = true;
     const f = audioCtx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 720;
     crowdGain = audioCtx.createGain(); crowdGain.gain.value = muted ? 0 : CROWD_BASE;
@@ -389,7 +389,29 @@
   }
   function sfxHomeRun() {
     if (playFile(SFX.homerun)) return;
-    if (richSound()) cheer(); else beep(900, 0.14, "sine", 0.06);
+    ensureAudio();
+    if (audioCtx) {
+      const t0 = audioCtx.currentTime;
+      [523, 659, 784, 1047].forEach((f, i) => {
+        const t = t0 + i * 0.11, o = audioCtx.createOscillator(), gg = audioCtx.createGain();
+        o.type = "square"; o.frequency.value = f;
+        gg.gain.setValueAtTime(0.0001, t); gg.gain.exponentialRampToValueAtTime(0.08, t + 0.02); gg.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+        o.connect(gg); gg.connect(audioCtx.destination); o.start(t); o.stop(t + 0.22);
+      });
+    }
+    cheer();
+  }
+  // Ballpark "CHARGE!" organ riff for Play Ball (synth, all versions)
+  function chargeRiff() {
+    if (muted) return; ensureAudio(); if (!audioCtx) return;
+    const t0 = audioCtx.currentTime;
+    const seq = [[262, 0], [349, 0.15], [523, 0.3], [349, 0.45], [523, 0.6]];
+    seq.forEach(([f, dt]) => {
+      const t = t0 + dt, o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = "square"; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.09, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+      o.connect(g); g.connect(audioCtx.destination); o.start(t); o.stop(t + 0.18);
+    });
   }
   function crack() {
     if (muted) return;
@@ -424,11 +446,13 @@
   const GRAVITY = 0.62, JUMP_V = -10.8;
   const player = { x: 92, y: GROUND_Y, vy: 0, ducking: false, onGround: true, runFrame: 0 };
   let jumpHeld = false, jumpHoldFrames = 0, jumpBuffer = 0;   // hold=float; buffer=reliable taps
-  let celebrating = false, celebrateTimer = 0;        // brief between-level celebration
+  let celebrating = false, celebrateTimer = 0;        // level-clear home-run cutscene
+  const CELEB_LEN = 84;
   let starMode = false, jumpTimes = [], ghostFlash = 0, crushBursts = [];   // secret: 5 fast jumps = star power
   let starTimer = 0;                 // >0 = timed star (golden bat); Infinity = permanent (secret)
-  let floaters = [], treatsLeft = 0, batLeft = 0;   // bonus pickups + golden bat
-  const PICKUPS = ["hotdog", "soda", "gum", "seeds", "crackerjack"];   // good — collect for bonus
+  let floaters = [], treatsLeft = 0, batLeft = 0;   // pickups + golden bat
+  let sizeLevel = 0, iframes = 0, hrSoundPlayed = false;   // Mario-style grow/shrink
+  const PICKUPS = ["hotdog", "soda", "gum", "seeds", "crackerjack"];   // good — collect to grow bigger
   // team badges for the big inning-style header
   const BADGE = { Braves: ["#13274f", "A"], Phillies: ["#e81828", "P"], Dodgers: ["#005a9c", "LA"], Rays: ["#092c5c", "TB"], "Red Sox": ["#bd3039", "B"], Yankees: ["#0c2340", "NY"] };
   const ORD = ["1ST", "2ND", "3RD", "4TH", "5TH", "6TH"];
@@ -445,7 +469,7 @@
   function makeStars() { stars = []; for (let i = 0; i < 42; i++) stars.push({ x: Math.random() * W, y: Math.random() * (GROUND_Y - 34), a: 0.3 + Math.random() * 0.6 }); }
   function effMax() { return cfg.maxSpeed + Math.min(levelIdx, 3) * 0.7; }   // speed stops climbing after L4
   function activateStar(frames) { starMode = true; starTimer = frames; }
-  function resetLevelSpawns() { treatsLeft = 2 + (Math.random() < 0.5 ? 1 : 0); batLeft = levelIdx >= 4 ? 1 : 0; }
+  function resetLevelSpawns() { treatsLeft = 1 + (Math.random() < 0.5 ? 1 : 0); batLeft = levelIdx >= 4 ? 1 : 0; }
   makeStars();
 
   for (let i = 0; i < 4; i++) clouds.push({ x: Math.random() * W, y: 24 + Math.random() * 70, s: 0.3 + Math.random() * 0.4 });
@@ -463,19 +487,19 @@
     if (oppTeams.length === 0) oppTeams = TEAMS;
     levelIdx = 0; champShown = false; levelFlash = 0; makeStars();
     starMode = false; starTimer = 0; jumpTimes = []; ghostFlash = 0; crushBursts = []; floaters = [];
+    sizeLevel = 0; iframes = 0; hrSoundPlayed = false;
     resetLevelSpawns();
     stopWinMusic();
     menuEl.classList.add("hidden"); gameoverEl.classList.add("hidden"); winEl.classList.add("hidden");
-    ensureAudio(); startCrowd();                         // crowd loop (file any version; synth in V3)
-    if (!startBall() && !richSound()) beep(660, 0.1, "square", 0.05);   // "Play Ball!" if provided
+    ensureAudio(); startCrowd();                    // crowd loop (all versions)
+    if (!startBall()) chargeRiff();                 // "Play Ball!" file, else the CHARGE! riff
   }
 
   function onLevelUp() {
-    levelFlash = 100; levelFlashName = LEVELS[levelIdx].team + " · " + LEVELS[levelIdx].name;
-    speed = Math.min(effMax(), speed + 0.6); makeStars();
-    obstacles = []; spawnGap = 320; resetLevelSpawns();   // fresh slate for the new inning
-    celebrating = true; celebrateTimer = 52;         // brief crowd-roar celebration
-    sfxHomeRun();                                    // "HOME RUN!" on finishing a level
+    speed = Math.min(effMax(), speed + 0.4); makeStars();
+    obstacles = []; spawnGap = 320; resetLevelSpawns();
+    celebrating = true; celebrateTimer = CELEB_LEN; hrSoundPlayed = false; levelFlash = 0;
+    beep(784, 0.1, "sine", 0.05);   // pleasant level-clear ding; HOME RUN sound plays at contact
   }
   function makeConfetti() {
     confetti = [];
@@ -505,24 +529,24 @@
     // GOLDEN BAT power-up (levels 5 & 6, rare) — grants 5s of star power to anyone
     if (batLeft > 0 && Math.random() < 0.13) {
       batLeft--;
-      obstacles.push({ type: "goldenbat", pickup: true, x: W + 24, w: 40, h: 30, baseY: GROUND_Y - 30, bob: Math.random() * 6.28, bobY: 0, amp: 5 });
+      obstacles.push({ type: "goldenbat", pickup: true, x: W + 24, w: 40, h: 30, baseY: GROUND_Y - 66, bob: Math.random() * 6.28, bobY: 0, amp: 5 });
       spawnGap = nextGap(); return;
     }
-    // TREAT pickups (2-3 per level) — collect for bonus points, not a hazard
+    // TREAT pickups (1-2 per level) — up HIGH so you jump for them; collect to GROW
     if (treatsLeft > 0 && Math.random() < 0.15) {
       treatsLeft--;
       const t = PICKUPS[(Math.random() * PICKUPS.length) | 0];
-      obstacles.push({ type: t, pickup: true, x: W + 24, w: 34, h: 34, baseY: GROUND_Y - 24, bob: Math.random() * 6.28, bobY: 0, amp: 5 });
+      obstacles.push({ type: t, pickup: true, x: W + 24, w: 34, h: 34, baseY: GROUND_Y - 70, bob: Math.random() * 6.28, bobY: 0, amp: 4 });
       spawnGap = nextGap(); return;
     }
-    // AIR: big baseballs (rival team names) at head height — hold SLIDE under
+    // AIR: big MEAN baseballs — hold SLIDE under them
     if (L.air && Math.random() < L.ballChance) {
-      const n = 1 + (Math.random() < 0.4 ? 1 : 0);   // 1-2, spaced so one slide clears them
-      let gx = W + 22;
+      const n = 1 + (Math.random() < 0.35 ? 1 : 0);   // 1-2, spaced so one slide clears them
+      let gx = W + 24;
       for (let i = 0; i < n; i++) {
         const team = oppTeams[(Math.random() * oppTeams.length) | 0];
-        obstacles.push({ type: "ball", x: gx, w: 38, h: 38, baseY: GROUND_Y - 32, bob: 0, bobY: 0, amp: 0, team });
-        gx += 54;
+        obstacles.push({ type: "ball", x: gx, w: 44, h: 44, baseY: GROUND_Y - 30, bob: 0, bobY: 0, amp: 0, team });
+        gx += 60;
       }
       spawnGap = nextGap(); return;
     }
@@ -677,23 +701,33 @@
     else drawFood(o.type, o.x, o.baseY + oy, o.w, o.h);
   }
 
-  // Clean, real-looking baseball (curved seams + stitches), team name subtle
+  // Big MEAN baseball — bold outline, seams, angry face (clearly a bad guy)
   function drawTeamBall(cx, cy, r, team) {
     const g = ctx; g.save();
-    const rg = g.createRadialGradient(cx - r * 0.32, cy - r * 0.32, r * 0.2, cx, cy, r);
-    rg.addColorStop(0, "#ffffff"); rg.addColorStop(1, "#e7e7e2");
-    g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fillStyle = rg; g.fill();
-    g.lineWidth = 1.5; g.strokeStyle = "rgba(0,0,0,0.3)"; g.stroke();
-    g.strokeStyle = "#c62d2d"; g.lineWidth = 1.7; g.lineCap = "round";
-    g.beginPath(); g.moveTo(cx - r * 0.52, cy - r * 0.82); g.quadraticCurveTo(cx - r * 0.98, cy, cx - r * 0.52, cy + r * 0.82); g.stroke();
-    g.beginPath(); g.moveTo(cx + r * 0.52, cy - r * 0.82); g.quadraticCurveTo(cx + r * 0.98, cy, cx + r * 0.52, cy + r * 0.82); g.stroke();
-    g.lineWidth = 1.3;
-    for (let i = -2; i <= 2; i++) {
-      const yy = cy + i * r * 0.34;
-      g.beginPath(); g.moveTo(cx - r * 0.66, yy - 2.5); g.lineTo(cx - r * 0.46, yy + 2.5); g.stroke();
-      g.beginPath(); g.moveTo(cx + r * 0.66, yy - 2.5); g.lineTo(cx + r * 0.46, yy + 2.5); g.stroke();
-    }
-    if (team) { g.fillStyle = "rgba(35,35,45,0.5)"; g.font = "bold " + Math.round(r * 0.5) + "px Arial"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(team.abbr, cx, cy); }
+    // drop shadow ring for pop
+    g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2);
+    const rg = g.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.2, cx, cy, r);
+    rg.addColorStop(0, "#ffffff"); rg.addColorStop(1, "#eceae4");
+    g.fillStyle = rg; g.fill();
+    g.lineWidth = 3; g.strokeStyle = "#181818"; g.stroke();      // bold outline
+    // faint seams
+    g.strokeStyle = "#d24a4a"; g.lineWidth = 2; g.lineCap = "round";
+    g.beginPath(); g.moveTo(cx - r * 0.62, cy - r * 0.78); g.quadraticCurveTo(cx - r * 0.98, cy, cx - r * 0.62, cy + r * 0.78); g.stroke();
+    g.beginPath(); g.moveTo(cx + r * 0.62, cy - r * 0.78); g.quadraticCurveTo(cx + r * 0.98, cy, cx + r * 0.62, cy + r * 0.78); g.stroke();
+    // angry eyebrows
+    g.strokeStyle = "#141414"; g.lineWidth = 3.2; g.lineCap = "round";
+    g.beginPath(); g.moveTo(cx - r * 0.5, cy - r * 0.44); g.lineTo(cx - r * 0.1, cy - r * 0.2); g.stroke();
+    g.beginPath(); g.moveTo(cx + r * 0.5, cy - r * 0.44); g.lineTo(cx + r * 0.1, cy - r * 0.2); g.stroke();
+    // eyes
+    g.fillStyle = "#fff"; g.strokeStyle = "#141414"; g.lineWidth = 1.5;
+    g.beginPath(); g.arc(cx - r * 0.26, cy - r * 0.06, r * 0.17, 0, Math.PI * 2); g.fill(); g.stroke();
+    g.beginPath(); g.arc(cx + r * 0.26, cy - r * 0.06, r * 0.17, 0, Math.PI * 2); g.fill(); g.stroke();
+    g.fillStyle = "#111";
+    g.beginPath(); g.arc(cx - r * 0.2, cy - r * 0.02, r * 0.08, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.arc(cx + r * 0.32, cy - r * 0.02, r * 0.08, 0, Math.PI * 2); g.fill();
+    // grimace mouth (frown with teeth)
+    g.strokeStyle = "#141414"; g.lineWidth = 2.6;
+    g.beginPath(); g.arc(cx, cy + r * 0.78, r * 0.34, Math.PI * 1.18, Math.PI * 1.82); g.stroke();
     g.restore();
   }
 
@@ -787,6 +821,7 @@
   const PANTS = "#eceff3";
   function drawRunner(g, cx, feet, ch, st) {
     g.save(); g.translate(cx, feet);
+    if (st.scale && st.scale !== 1) g.scale(st.scale, st.scale);   // Mario grow
 
     if (st.duck) { drawDuck(g, ch); g.restore(); return; }
 
@@ -1049,6 +1084,46 @@
     }
     ctx.restore();
   }
+  function drawPlainBall(x, y, r) {
+    const g = ctx; g.save();
+    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fillStyle = "#fff"; g.fill();
+    g.lineWidth = 1.6; g.strokeStyle = "#222"; g.stroke();
+    g.strokeStyle = "#d33"; g.lineWidth = 1.2;
+    g.beginPath(); g.arc(x - r * 0.6, y, r, -0.5, 0.5); g.stroke();
+    g.beginPath(); g.arc(x + r * 0.6, y, r, Math.PI - 0.5, Math.PI + 0.5); g.stroke();
+    g.restore();
+  }
+  // Level-clear cutscene: player takes a swing and BOMBS a pitch for a home run
+  function drawHomeRunScene(p) {
+    const px = player.x, feet = GROUND_Y, sc = 1 + sizeLevel * 0.28;
+    // player standing (frozen legs — no jitter)
+    drawRunner(ctx, px, feet, ROSTER[charIndex], { duck: false, onGround: true, runFrame: 2, scale: sc });
+    // bat, cocked then swinging through
+    let swing = p < 0.44 ? (-1.35 + (p / 0.44) * 0.3) : (-1.05 + Math.min(1, (p - 0.44) / 0.16) * 2.7);
+    ctx.save(); ctx.translate(px + 6, feet - 36 * sc); ctx.rotate(swing);
+    ctx.fillStyle = "#c8925a"; ctx.strokeStyle = "#5a3a17"; ctx.lineWidth = 1.6; ctx.lineJoin = "round";
+    roundRect(ctx, 0, -3.6, 36, 7.2, 3.6); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "#8a5a2a"; ctx.fillRect(-5, -3.2, 6, 6.4);
+    ctx.restore();
+    // the pitch, then the bomb
+    if (p < 0.46) {
+      const q = p / 0.46, bx = W * 0.92 - q * (W * 0.92 - (px + 24)), by = feet - 40 * sc;
+      drawPlainBall(bx, by, 10);
+    } else {
+      const q = (p - 0.46) / 0.54;
+      const bx = (px + 24) + q * (W * 0.85);
+      const by = (feet - 40 * sc) - Math.sin(Math.min(1, q) * 1.15) * 150;
+      ctx.globalAlpha = 0.45; drawPlainBall(bx - 12, by + 7, 7 * (1 - q * 0.4)); ctx.globalAlpha = 1;
+      drawPlainBall(bx, by, 11 * (1 - q * 0.35));
+    }
+    if (p > 0.5) {
+      const a = Math.min(1, (p - 0.5) / 0.14), pulse = 1 + Math.sin(p * 30) * 0.05;
+      ctx.globalAlpha = a; ctx.textAlign = "center";
+      ctx.font = "bold " + Math.round(34 * pulse) + "px Arial"; ctx.lineWidth = 5; ctx.strokeStyle = "rgba(0,0,0,0.4)";
+      ctx.strokeText("💥 HOME RUN!", W / 2, 72); ctx.fillStyle = "#ffd23f"; ctx.fillText("💥 HOME RUN!", W / 2, 72);
+      ctx.globalAlpha = 1;
+    }
+  }
   function drawCelebration(dt) {
     winTimer += dt;
     drawSky(); if (!LEVELS[levelIdx].night) drawClouds(); drawPark(); drawGround(groundOffset);
@@ -1124,8 +1199,9 @@
 
     if (state === S.PLAYING) {
       if (celebrating) {
-        // brief between-level celebration: everything freezes, player hops & roars
-        celebrateTimer -= dt; player.runFrame += 0.3 * dt;
+        // level-clear: a home-run swing cutscene (no jitter)
+        celebrateTimer -= dt;
+        if (!hrSoundPlayed && (1 - celebrateTimer / CELEB_LEN) >= 0.44) { hrSoundPlayed = true; crack(); sfxHomeRun(); }
         if (celebrateTimer <= 0) celebrating = false;
       } else {
         speed = Math.min(effMax(), speed + cfg.accel * dt);
@@ -1165,23 +1241,34 @@
         obstacles = obstacles.filter(o => o.x > -80);
         groundOffset += speed * dt;
 
+        if (iframes > 0) iframes -= dt;
+
         const pb = playerBox();
         let died = false;
         for (const o of obstacles) {
           if (o.gone || !hit(pb, o)) continue;
           if (o.type === "goldenbat") {
-            o.gone = true; activateStar(300); ghostFlash = 40; bonus += 20;
+            o.gone = true; activateStar(300); ghostFlash = 40;
             floaters.push({ x: o.x, y: o.baseY - o.h, txt: "⚡ GOLDEN BAT!", t: 44, c: "#ffd23f" });
             crushBursts.push({ x: o.x, y: o.baseY - o.h / 2, t: 18 });
             if (richSound()) cheer(); else beep(1046, 0.14, "square", 0.05);
           } else if (o.pickup) {
-            o.gone = true; bonus += 40;
-            floaters.push({ x: o.x, y: o.baseY - o.h, txt: "+40", t: 36, c: "#37e06a" });
-            beep(880, 0.06, "square", 0.045);
+            // grow bigger (Mario mushroom)
+            o.gone = true; sizeLevel = Math.min(2, sizeLevel + 1);
+            floaters.push({ x: o.x, y: o.baseY - o.h, txt: "GROW! 💪", t: 40, c: "#ffd23f" });
+            beep(523, 0.06, "square", 0.05); beep(784, 0.09, "square", 0.05);
           } else if (starMode) {
-            o.gone = true; bonus += 5;
+            o.gone = true;
             crushBursts.push({ x: o.x, y: o.baseY - o.h / 2 + (o.bobY || 0), t: 16 });
             beep(760, 0.05, "square", 0.04);
+          } else if (iframes > 0) {
+            // temporarily invincible after a shrink — pass through
+          } else if (sizeLevel > 0) {
+            // shrink instead of dying, brief invincibility
+            sizeLevel--; iframes = 72;
+            floaters.push({ x: player.x, y: GROUND_Y - 60, txt: "OW! 💢", t: 34, c: "#ff5a5a" });
+            beep(400, 0.1, "square", 0.05); beep(240, 0.14, "square", 0.05);
+            break;
           } else {
             died = true; break;
           }
@@ -1220,11 +1307,14 @@
     }
     floaters = floaters.filter(f => f.t > 0);
     if (state !== S.MENU) {
-      let feetY = player.y, cheer = false;
-      if (celebrating) { feetY = GROUND_Y - Math.abs(Math.sin(celebrateTimer * 0.35)) * 16; cheer = true; }
-      if (starMode) drawStarGlow(player.x, feetY);
-      drawRunner(ctx, player.x, feetY, ROSTER[charIndex],
-        { duck: player.ducking, onGround: player.onGround, runFrame: player.runFrame, cheer, star: starMode });
+      if (celebrating) {
+        drawHomeRunScene(1 - celebrateTimer / CELEB_LEN);
+      } else {
+        if (starMode) drawStarGlow(player.x, player.y);
+        const blink = iframes > 0 && Math.floor(iframes / 4) % 2 === 0;
+        if (!blink) drawRunner(ctx, player.x, player.y, ROSTER[charIndex],
+          { duck: player.ducking, onGround: player.onGround, runFrame: player.runFrame, star: starMode, scale: 1 + sizeLevel * 0.28 });
+      }
       drawHUD();
     }
 
