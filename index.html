@@ -139,7 +139,7 @@
         </div>
         <div class="actions">
           <button class="play" id="playBtn">Play Ball ▶</button>
-          <button class="ghost" id="surprise">🎲 Surprise Me</button>
+          <button class="ghost" id="surprise">🥚 Easter Egg</button>
         </div>
       </div>
 
@@ -189,7 +189,9 @@
     { name: "Fernando Tatis Jr.", team: "Padres",  abbr: "SD",  primary: "#2f241d", accent: "#ffc425", num: "23", mark: "SD", skin: "#a56c43", img: "tatis" },
     { name: "José Ramírez",     team: "Guardians", abbr: "CLE", primary: "#0c2340", accent: "#e31937", num: "11", mark: "C",  skin: "#8a5a3b", img: "jramirez" },
     { name: "Corey Seager",     team: "Rangers",   abbr: "TEX", primary: "#003278", accent: "#c0111f", num: "5",  mark: "T",  skin: "#c68642", img: "seager" },
-    { name: "Tyler • Dude Perfect (secret)", team: "Dude Perfect", abbr: "DP", primary: "#0e76bc", accent: "#ffffff", num: "DP", mark: "DP", skin: "#d8a373", img: "tyler" },
+    { name: "Tyler • Dude Perfect", team: "Dude Perfect", abbr: "DP", primary: "#0e76bc", accent: "#ffffff", num: "DP", mark: "DP", skin: "#d8a373", img: "tyler", secret: true },
+    // Add up to 4 more secret characters here (secret: true, img: "<file>") — the
+    // Easter Egg button cycles through all of them. Drop img/players/<file>.png.
   ];
 
   // Opponent baseballs (color + abbr, drawn)
@@ -385,6 +387,7 @@
   const player = { x: 92, y: GROUND_Y, vy: 0, ducking: false, onGround: true, runFrame: 0 };
   let jumpHeld = false, jumpHoldFrames = 0;          // hold jump = float higher (clear 2)
   let celebrating = false, celebrateTimer = 0;        // brief between-level celebration
+  let invisibleMode = false, jumpTimes = [], ghostFlash = 0;   // secret: 5 fast jumps = invisible
   // team badges for the big inning-style header
   const BADGE = { Braves: ["#13274f", "A"], Phillies: ["#e81828", "P"], Dodgers: ["#005a9c", "LA"], Rays: ["#092c5c", "TB"], "Red Sox": ["#bd3039", "B"], Yankees: ["#0c2340", "NY"] };
   const ORD = ["1ST", "2ND", "3RD", "4TH", "5TH", "6TH"];
@@ -416,6 +419,7 @@
     oppTeams = TEAMS.filter(t => t.abbr !== me.abbr);
     if (oppTeams.length === 0) oppTeams = TEAMS;
     levelIdx = 0; champShown = false; levelFlash = 0; makeStars();
+    invisibleMode = false; jumpTimes = []; ghostFlash = 0;
     stopWinMusic();
     menuEl.classList.add("hidden"); gameoverEl.classList.add("hidden"); winEl.classList.add("hidden");
     if (richSound()) { ensureAudio(); startCrowd(); startBall(); }
@@ -476,8 +480,19 @@
   }
 
   // ======================= INPUT ==========================================
+  function registerJumpTap() {
+    const now = performance.now();
+    jumpTimes.push(now);
+    jumpTimes = jumpTimes.filter(t => now - t < 1500);
+    // secret characters: 5 fast jumps -> invisible for the rest of the run, hehehe
+    if (jumpTimes.length >= 5 && ROSTER[charIndex].secret && !invisibleMode) {
+      invisibleMode = true; ghostFlash = 48; jumpTimes = [];
+      if (richSound()) cheer(); else beep(300, 0.2, "sine", 0.05);
+    }
+  }
   function jump() {
     if (state !== S.PLAYING || celebrating) return;
+    registerJumpTap();
     if (player.onGround) { player.vy = JUMP_V; player.onGround = false; player.ducking = false; jumpHeld = true; jumpHoldFrames = 0; if (richSound()) crack(); else beep(520, 0.09, "square", 0.045); }
   }
   function setDuck(on) {
@@ -1018,7 +1033,7 @@
     if (state !== S.MENU) {
       let feetY = player.y, cheer = false;
       if (celebrating) { feetY = GROUND_Y - Math.abs(Math.sin(celebrateTimer * 0.35)) * 16; cheer = true; }
-      drawRunner(ctx, player.x, feetY, ROSTER[charIndex],
+      if (!invisibleMode) drawRunner(ctx, player.x, feetY, ROSTER[charIndex],
         { duck: player.ducking, onGround: player.onGround, runFrame: player.runFrame, cheer });
       drawHUD();
     }
@@ -1038,6 +1053,13 @@
       ctx.fillText(isChamp ? levelFlashName : "LEVEL " + (levelIdx + 1), W / 2, H / 2 - 6);
       if (!isChamp) { ctx.font = "bold 16px Arial"; ctx.fillStyle = "rgba(255,255,255,0.95)"; ctx.fillText(levelFlashName, W / 2, H / 2 + 18); }
       ctx.globalAlpha = 1; levelFlash -= dt;
+    }
+
+    if (ghostFlash > 0) {
+      ctx.globalAlpha = Math.min(1, ghostFlash / 24);
+      ctx.fillStyle = "#8fd3ff"; ctx.textAlign = "center"; ctx.font = "bold 22px Arial";
+      ctx.fillText("👻 INVISIBLE MODE!", W / 2, 84);
+      ctx.globalAlpha = 1; ghostFlash -= dt;
     }
 
     requestAnimationFrame(frame);
@@ -1074,7 +1096,8 @@
   animatePreview();
 
   function changeChar(dir) {
-    charIndex = (charIndex + dir + ROSTER.length) % ROSTER.length;
+    do { charIndex = (charIndex + dir + ROSTER.length) % ROSTER.length; }
+    while (ROSTER[charIndex].secret);   // secret chars are hidden — reach them via Easter Egg
     renderPreview(); beep(440, 0.05, "square", 0.03);
   }
   function setDiff(k) {
@@ -1097,7 +1120,14 @@
   document.getElementById("menuBtn").onclick = toMenu;
   document.getElementById("winAgain").onclick = startGame;
   document.getElementById("winMenu").onclick = toMenu;
-  document.getElementById("surprise").onclick = () => { charIndex = (Math.random() * ROSTER.length) | 0; renderPreview(); beep(700, 0.08, "sine", 0.05); };
+  const secretIdxs = ROSTER.map((c, i) => c.secret ? i : -1).filter(i => i >= 0);
+  let secretPick = -1;
+  document.getElementById("surprise").onclick = () => {
+    if (!secretIdxs.length) return;
+    secretPick = (secretPick + 1) % secretIdxs.length;   // cycle mystery characters
+    charIndex = secretIdxs[secretPick];
+    renderPreview(); beep(700, 0.08, "sine", 0.05);
+  };
   document.querySelectorAll("#diff .diffbtn").forEach(b => b.onclick = () => setDiff(b.dataset.diff));
   document.querySelectorAll("#ver .diffbtn").forEach(b => b.onclick = () => setVersion(Number(b.dataset.ver)));
 
