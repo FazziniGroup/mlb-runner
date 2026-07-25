@@ -780,17 +780,23 @@
     for (let i = 0; i < n; i++) { const x = mL + i * step; g.beginPath(); g.moveTo(x, ty); g.lineTo(x + step, ty); g.lineTo(x + step * 0.5, ty + r * 0.24); g.closePath(); g.fill(); }
   }
   // Big MEAN baseball — bold outline, seams, angry face
+  // Plain baseball: white with red curved seams + stitches, faint team name
   function drawTeamBall(cx, cy, r, team) {
     const g = ctx; g.save();
-    g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2);
-    const rg = g.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.2, cx, cy, r);
-    rg.addColorStop(0, "#ffffff"); rg.addColorStop(1, "#eceae4");
-    g.fillStyle = rg; g.fill();
-    g.lineWidth = 3; g.strokeStyle = "#181818"; g.stroke();
-    g.strokeStyle = "#d24a4a"; g.lineWidth = 2; g.lineCap = "round";
-    g.beginPath(); g.moveTo(cx - r * 0.62, cy - r * 0.78); g.quadraticCurveTo(cx - r * 0.98, cy, cx - r * 0.62, cy + r * 0.78); g.stroke();
-    g.beginPath(); g.moveTo(cx + r * 0.62, cy - r * 0.78); g.quadraticCurveTo(cx + r * 0.98, cy, cx + r * 0.62, cy + r * 0.78); g.stroke();
-    drawMeanFace(g, cx, cy, r);
+    const rg = g.createRadialGradient(cx - r * 0.32, cy - r * 0.32, r * 0.2, cx, cy, r);
+    rg.addColorStop(0, "#ffffff"); rg.addColorStop(1, "#e7e7e2");
+    g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fillStyle = rg; g.fill();
+    g.lineWidth = 1.5; g.strokeStyle = "rgba(0,0,0,0.3)"; g.stroke();
+    g.strokeStyle = "#c62d2d"; g.lineWidth = 1.7; g.lineCap = "round";
+    g.beginPath(); g.moveTo(cx - r * 0.52, cy - r * 0.82); g.quadraticCurveTo(cx - r * 0.98, cy, cx - r * 0.52, cy + r * 0.82); g.stroke();
+    g.beginPath(); g.moveTo(cx + r * 0.52, cy - r * 0.82); g.quadraticCurveTo(cx + r * 0.98, cy, cx + r * 0.52, cy + r * 0.82); g.stroke();
+    g.lineWidth = 1.3;
+    for (let i = -2; i <= 2; i++) {
+      const yy = cy + i * r * 0.34;
+      g.beginPath(); g.moveTo(cx - r * 0.66, yy - 2.5); g.lineTo(cx - r * 0.46, yy + 2.5); g.stroke();
+      g.beginPath(); g.moveTo(cx + r * 0.66, yy - 2.5); g.lineTo(cx + r * 0.46, yy + 2.5); g.stroke();
+    }
+    if (team) { g.fillStyle = "rgba(35,35,45,0.5)"; g.font = "bold " + Math.round(r * 0.5) + "px Arial"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(team.abbr, cx, cy); }
     g.restore();
   }
   // Finish zone: dirt infield with a WATER gap crossed by an aerial BRIDGE.
@@ -864,13 +870,14 @@
     g.fillStyle = accent; g.fillRect(-hw * 0.66, -h * 0.46, w * 0.66, 3);   // level-color accent stripe
     g.strokeStyle = "#000"; g.lineWidth = 1.5;
     for (let i = 1; i <= 2; i++) { const yy = -h * 0.74 + i * h * 0.14; g.beginPath(); g.moveTo(-hw * 0.66, yy); g.lineTo(-hw * 0.66 + w * 0.66, yy); g.stroke(); }
-    // head: skin + MEAN face (same as the baseballs) + black cap
-    const hy = -h * 0.82, hr = h * 0.2;
+    // head: skin + black cap + white mask cage (normal umpire)
+    const hy = -h * 0.83, hr = h * 0.17;
     g.strokeStyle = "#000"; g.lineWidth = 2;
     g.fillStyle = "#8a5a3b"; g.beginPath(); g.arc(0, hy, hr, 0, Math.PI * 2); g.fill(); g.stroke();
-    drawMeanFace(g, 0, hy + hr * 0.12, hr * 0.95);
-    g.fillStyle = "#0c0c0c"; g.beginPath(); g.arc(0, hy - hr * 0.35, hr * 1.02, Math.PI * 1.02, Math.PI * 1.98); g.closePath(); g.fill();
-    g.fillRect(-hr * 1.45, hy - hr * 0.52, hr * 1.35, hr * 0.34);   // brim
+    g.fillStyle = "#0c0c0c"; g.beginPath(); g.arc(0, hy, hr * 1.18, Math.PI, Math.PI * 2); g.closePath(); g.fill();
+    g.strokeStyle = "#f2f4f7"; g.lineWidth = 1.6;
+    g.beginPath(); g.arc(0, hy + h * 0.02, hr, -0.4, Math.PI + 0.4); g.stroke();
+    for (let i = -1; i <= 1; i++) { g.beginPath(); g.moveTo(i * hr * 0.5, hy - hr * 0.7); g.lineTo(i * hr * 0.5, hy + hr * 0.95); g.stroke(); }
     g.restore();
   }
 
