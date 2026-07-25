@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>MLB Runner — Baseball Dino Game</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #0c1622; color: #eaf0f6;
+    overflow-x: hidden; overflow-y: auto; touch-action: manipulation;
+  }
+  .wrap {
+    min-height: 100dvh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 10px; padding: 12px;
+  }
+  .title { text-align: center; line-height: 1.1; }
+  .title h1 { margin: 0; font-size: clamp(20px, 5vw, 32px); letter-spacing: 0.5px; color: #fff; }
+  .title h1 .red { color: #ce1141; }
+  .title p { margin: 4px 0 0; font-size: 13px; opacity: 0.6; }
+
+  .stage {
+    position: relative;
+    /* fit inside the viewport on any screen while keeping the 900:260 ratio */
+    width: min(100%, 900px, calc((100dvh - 150px) * 3.46));
+    aspect-ratio: 900 / 260;
+    background: linear-gradient(#bfe3ff 0%, #e9f6ff 55%, #f4fbff 100%);
+    border-radius: 14px; overflow: hidden;
+    box-shadow: 0 18px 50px rgba(0,0,0,0.45), inset 0 0 0 1px rgba(255,255,255,0.5);
+  }
+  canvas#game { display: block; width: 100%; height: auto; }
+
+  /* Overlays */
+  /* Full-screen modal so the menu is never clipped by the short game box */
+  .overlay {
+    position: fixed; inset: 0; z-index: 50;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 12px;
+    background: rgba(9,16,26,0.92); backdrop-filter: blur(4px);
+    color: #fff; text-align: center; padding: 16px;
+    overflow-y: auto;
+  }
+  .overlay.hidden { display: none; }
+  .overlay h2 { margin: 0; font-size: clamp(18px, 4vw, 26px); }
+  .overlay .sub { font-size: 13px; opacity: 0.8; margin-top: -6px; }
+
+  .difficulty { display: flex; gap: 8px; }
+  .diffbtn {
+    border: 1.5px solid rgba(255,255,255,0.3); background: rgba(255,255,255,0.06);
+    color: #fff; padding: 8px 16px; border-radius: 999px; font-size: 14px; font-weight: 700;
+    cursor: pointer; transition: all .12s;
+  }
+  .diffbtn:hover { background: rgba(255,255,255,0.14); }
+  .diffbtn.active { background: #ce1141; border-color: #ce1141; }
+
+  .picker { display: flex; align-items: center; gap: 14px; }
+  .arrow {
+    width: 40px; height: 40px; border-radius: 50%; border: none; cursor: pointer;
+    background: rgba(255,255,255,0.12); color: #fff; font-size: 20px; line-height: 1;
+  }
+  .arrow:hover { background: rgba(255,255,255,0.22); }
+  .card {
+    width: 168px; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  }
+  .card canvas { background: linear-gradient(#dff1ff,#f4fbff); border-radius: 10px; }
+  .card .pname { font-weight: 800; font-size: 15px; }
+  .card .pteam { font-size: 12px; opacity: 0.75; }
+
+  .actions { display: flex; gap: 10px; margin-top: 2px; flex-wrap: wrap; justify-content: center; }
+  .play {
+    background: #37b24d; color: #fff; border: none; padding: 11px 26px; border-radius: 999px;
+    font-size: 16px; font-weight: 800; cursor: pointer; box-shadow: 0 6px 16px rgba(55,178,77,0.4);
+  }
+  .play:hover { filter: brightness(1.08); }
+  .ghost {
+    background: rgba(255,255,255,0.08); color: #fff; border: 1.5px solid rgba(255,255,255,0.25);
+    padding: 11px 18px; border-radius: 999px; font-size: 15px; font-weight: 700; cursor: pointer;
+  }
+  .ghost:hover { background: rgba(255,255,255,0.16); }
+
+  .hint { font-size: 12.5px; opacity: 0.6; text-align: center; max-width: 900px; }
+  .hint b { opacity: 0.9; }
+  kbd { background: #1d2a3a; border: 1px solid #33475f; border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; font-size: 11px; font-family: inherit; }
+
+  /* Small / short screens: shrink chrome so the game + menu always fit */
+  @media (max-width: 560px), (max-height: 620px) {
+    .title p { display: none; }
+    .title h1 { font-size: 20px; }
+    .overlay h2 { font-size: 17px; }
+    .card canvas { width: 108px; height: 92px; }
+    .card .pname { font-size: 13px; }
+    .diffbtn { padding: 6px 13px; font-size: 13px; }
+    .arrow { width: 34px; height: 34px; font-size: 18px; }
+    .play, .ghost { padding: 9px 16px; font-size: 14px; }
+    .hint { font-size: 11px; }
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="title">
+      <h1>MLB <span class="red">RUNNER</span></h1>
+      <p>Jump the baseballs. Duck the fastballs. Endless-runner, baseball style.</p>
+    </div>
+
+    <div class="stage">
+      <canvas id="game" width="900" height="260"></canvas>
+
+      <!-- START MENU -->
+      <div class="overlay" id="menu">
+        <h2>⚾ Choose your slugger</h2>
+        <div class="difficulty" id="diff">
+          <button class="diffbtn" data-diff="easy">Easy</button>
+          <button class="diffbtn active" data-diff="medium">Medium</button>
+          <button class="diffbtn" data-diff="hard">Hard</button>
+        </div>
+        <div class="picker">
+          <button class="arrow" id="prev">‹</button>
+          <div class="card">
+            <canvas id="preview" width="150" height="128"></canvas>
+            <div class="pname" id="pname">—</div>
+            <div class="pteam" id="pteam">—</div>
+          </div>
+          <button class="arrow" id="next">›</button>
+        </div>
+        <div class="actions">
+          <button class="play" id="playBtn">Play Ball ▶</button>
+          <button class="ghost" id="surprise">🎲 Surprise Me</button>
+        </div>
+      </div>
+
+      <!-- GAME OVER -->
+      <div class="overlay hidden" id="gameover">
+        <h2 id="goTitle">Struck out!</h2>
+        <div class="sub" id="goScore">Score 0 · High 0</div>
+        <div class="actions">
+          <button class="play" id="againBtn">Swing Again ▶</button>
+          <button class="ghost" id="menuBtn">Change Player / Mode</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="hint">
+      <b>Jump:</b> <kbd>Space</kbd> / <kbd>↑</kbd> / tap top &nbsp;·&nbsp;
+      <b>Duck:</b> <kbd>↓</kbd> / hold bottom &nbsp;·&nbsp;
+      <b>Sound:</b> <kbd>M</kbd>
+    </div>
+  </div>
+
+<script>
+(() => {
+  "use strict";
+
+  // ======================= ROSTER (12 superstars) =========================
+  // Colors + number + helmet mark are drawn — no logo image files.
+  // `img` = filename base. Drop img/players/<img>.png to use a real face.
+  const ROSTER = [
+    { name: "Ronald Acuña Jr.", team: "Braves",    abbr: "ATL", primary: "#13274f", accent: "#ce1141", num: "13", mark: "A",  skin: "#8a5a3b", img: "acuna" },
+    { name: "Bryce Harper",     team: "Phillies",  abbr: "PHI", primary: "#e81828", accent: "#284898", num: "3",  mark: "P",  skin: "#c68642", img: "harper" },
+    { name: "Shohei Ohtani",    team: "Dodgers",   abbr: "LAD", primary: "#005a9c", accent: "#ef3e42", num: "17", mark: "LA", skin: "#e0ac69", img: "ohtani" },
+    { name: "Aaron Judge",      team: "Yankees",   abbr: "NYY", primary: "#0c2340", accent: "#8a97a3", num: "99", mark: "NY", skin: "#8a5a3b", img: "judge" },
+    { name: "Mookie Betts",     team: "Dodgers",   abbr: "LAD", primary: "#005a9c", accent: "#ef3e42", num: "50", mark: "LA", skin: "#6f462d", img: "betts" },
+    { name: "Mike Trout",       team: "Angels",    abbr: "LAA", primary: "#ba0021", accent: "#003263", num: "27", mark: "A",  skin: "#c68642", img: "trout" },
+    { name: "Juan Soto",        team: "Mets",      abbr: "NYM", primary: "#002d72", accent: "#ff5910", num: "22", mark: "NY", skin: "#8a5a3b", img: "soto" },
+    { name: "Freddie Freeman",  team: "Dodgers",   abbr: "LAD", primary: "#005a9c", accent: "#ef3e42", num: "5",  mark: "LA", skin: "#d8a373", img: "freeman" },
+    { name: "Vladimir Guerrero Jr.", team: "Blue Jays", abbr: "TOR", primary: "#134a8e", accent: "#e8291c", num: "27", mark: "T", skin: "#8a5a3b", img: "vladjr" },
+    { name: "Fernando Tatis Jr.", team: "Padres",  abbr: "SD",  primary: "#2f241d", accent: "#ffc425", num: "23", mark: "SD", skin: "#a56c43", img: "tatis" },
+    { name: "José Ramírez",     team: "Guardians", abbr: "CLE", primary: "#0c2340", accent: "#e31937", num: "11", mark: "C",  skin: "#8a5a3b", img: "jramirez" },
+    { name: "Corey Seager",     team: "Rangers",   abbr: "TEX", primary: "#003278", accent: "#c0111f", num: "5",  mark: "T",  skin: "#c68642", img: "seager" },
+  ];
+
+  // Opponent baseballs (color + abbr, drawn)
+  const TEAMS = [
+    { abbr: "NYM", color: "#ff5910", ink: "#002d72" },
+    { abbr: "PHI", color: "#e81828", ink: "#ffffff" },
+    { abbr: "MIA", color: "#00a3e0", ink: "#000000" },
+    { abbr: "WSH", color: "#ab0003", ink: "#14225a" },
+    { abbr: "LAD", color: "#005a9c", ink: "#ffffff" },
+    { abbr: "HOU", color: "#eb6e1f", ink: "#002d62" },
+    { abbr: "SD",  color: "#2f241d", ink: "#ffc425" },
+    { abbr: "NYY", color: "#0c2340", ink: "#ffffff" },
+    { abbr: "ATL", color: "#ce1141", ink: "#13274f" },
+  ];
+
+  // ======================= OPTIONAL REAL IMAGES ===========================
+  // Drop files in img/players/<img>.png and img/logos/<abbr>.png to use them.
+  // Missing files fall back to the drawn version automatically.
+  function loadImg(src) { const im = new Image(); im.src = src; return im; }
+  ROSTER.forEach(c => { c.face = loadImg("img/players/" + c.img + ".png"); });
+  TEAMS.forEach(t => { t.logo = loadImg("img/logos/" + t.abbr.toLowerCase() + ".png"); });
+  function ready(im) { return im && im.complete && im.naturalWidth > 0; }
+
+  // ======================= DIFFICULTY =====================================
+  const DIFFS = {
+    easy:   { startSpeed: 5.0, maxSpeed: 9.5,  accel: 0.0009, reactFrames: 48, gapExtra: 320, flyStart: 500, flyChance: 0.12 },
+    medium: { startSpeed: 6.0, maxSpeed: 12.5, accel: 0.0015, reactFrames: 41, gapExtra: 260, flyStart: 280, flyChance: 0.20 },
+    hard:   { startSpeed: 7.3, maxSpeed: 15.5, accel: 0.0022, reactFrames: 34, gapExtra: 210, flyStart: 130, flyChance: 0.30 },
+  };
+
+  // ======================= CANVAS SETUP ===================================
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+  const W = 900, H = 260, GROUND_Y = 214;
+  function fitDPR() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  fitDPR(); window.addEventListener("resize", fitDPR);
+
+  // ======================= SOUND ==========================================
+  let audioCtx = null, muted = false;
+  function beep(freq, dur = 0.08, type = "square", vol = 0.05) {
+    if (muted) return;
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = type; o.frequency.value = freq; g.gain.value = vol;
+      o.connect(g); g.connect(audioCtx.destination);
+      const t = audioCtx.currentTime;
+      o.start(t); g.gain.setValueAtTime(vol, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur); o.stop(t + dur);
+    } catch (e) {}
+  }
+
+  // ======================= STATE ==========================================
+  const S = { MENU: 0, PLAYING: 1, OVER: 2 };
+  let state = S.MENU;
+
+  let charIndex = Number(localStorage.getItem("mlbChar") || 0);
+  if (charIndex < 0 || charIndex >= ROSTER.length) charIndex = 0;
+  let diffKey = localStorage.getItem("mlbDiff") || "medium";
+  if (!DIFFS[diffKey]) diffKey = "medium";
+
+  const GRAVITY = 0.62, JUMP_V = -11.4;
+  const player = { x: 92, y: GROUND_Y, vy: 0, ducking: false, onGround: true, runFrame: 0 };
+
+  let cfg = DIFFS[diffKey];
+  let speed = cfg.startSpeed;
+  let distance = 0, score = 0;
+  let high = Number(localStorage.getItem("mlbHigh") || 0);
+  let obstacles = [], clouds = [];
+  let spawnGap = 0, groundOffset = 0, flashMilestone = 0;
+  let oppTeams = TEAMS;
+
+  for (let i = 0; i < 4; i++) clouds.push({ x: Math.random() * W, y: 24 + Math.random() * 70, s: 0.3 + Math.random() * 0.4 });
+
+  function startGame() {
+    cfg = DIFFS[diffKey];
+    state = S.PLAYING;
+    speed = cfg.startSpeed;
+    distance = 0; score = 0;
+    obstacles = []; flashMilestone = 0;
+    player.y = GROUND_Y; player.vy = 0; player.onGround = true; player.ducking = false;
+    spawnGap = 520;
+    const me = ROSTER[charIndex];
+    oppTeams = TEAMS.filter(t => t.abbr !== me.abbr);
+    if (oppTeams.length === 0) oppTeams = TEAMS;
+    menuEl.classList.add("hidden"); gameoverEl.classList.add("hidden");
+    beep(660, 0.1, "square", 0.05);
+  }
+
+  // ======================= SPAWNING =======================================
+  function nextGap() {
+    const minGap = speed * cfg.reactFrames;      // must-clear reaction distance
+    return minGap + Math.random() * cfg.gapExtra;
+  }
+  function spawnObstacle() {
+    const team = oppTeams[(Math.random() * oppTeams.length) | 0];
+    const canFly = score >= cfg.flyStart;
+    if (canFly && Math.random() < cfg.flyChance) {
+      obstacles.push({ type: "fly", x: W + 20, cy: GROUND_Y - 52, r: 14, team, bob: Math.random() * Math.PI * 2 });
+    } else {
+      const r = 15 + ((Math.random() * 5) | 0);
+      obstacles.push({ type: "ground", x: W + 20, cy: GROUND_Y - r, r, team });
+    }
+    spawnGap = nextGap();
+  }
+
+  // ======================= INPUT ==========================================
+  function jump() {
+    if (state !== S.PLAYING) return;
+    if (player.onGround) { player.vy = JUMP_V; player.onGround = false; player.ducking = false; beep(520, 0.09, "square", 0.045); }
+  }
+  function setDuck(on) {
+    if (state !== S.PLAYING) return;
+    if (on) { if (player.onGround) player.ducking = true; else player.vy += 1.6; }
+    else player.ducking = false;
+  }
+
+  window.addEventListener("keydown", (e) => {
+    if (e.code === "KeyM") { muted = !muted; return; }
+    if (state === S.MENU) {
+      if (e.code === "ArrowLeft") { changeChar(-1); }
+      else if (e.code === "ArrowRight") { changeChar(1); }
+      else if (e.code === "Space" || e.code === "Enter") { e.preventDefault(); startGame(); }
+      return;
+    }
+    if (state === S.OVER) {
+      if (e.code === "Space" || e.code === "Enter") { e.preventDefault(); startGame(); }
+      else if (e.code === "Escape") { toMenu(); }
+      return;
+    }
+    // playing
+    if (e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyW") { e.preventDefault(); jump(); }
+    else if (e.code === "ArrowDown" || e.code === "KeyS") { e.preventDefault(); setDuck(true); }
+  });
+  window.addEventListener("keyup", (e) => {
+    if (e.code === "ArrowDown" || e.code === "KeyS") setDuck(false);
+    if ((e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyW") && player.vy < -4.5) player.vy = -4.5; // short hop
+  });
+
+  canvas.addEventListener("pointerdown", (e) => {
+    if (state !== S.PLAYING) return;
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const ry = (e.clientY - rect.top) / rect.height;
+    if (ry > 0.62) setDuck(true); else jump();
+  });
+  canvas.addEventListener("pointerup", () => setDuck(false));
+  canvas.addEventListener("pointercancel", () => setDuck(false));
+
+  // ======================= DRAW: baseball =================================
+  function roundRect(g, x, y, w, h, r) {
+    g.beginPath();
+    g.moveTo(x + r, y);
+    g.arcTo(x + w, y, x + w, y + h, r);
+    g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r);
+    g.arcTo(x, y, x + w, y, r);
+    g.closePath();
+  }
+  function drawBaseball(g, x, y, r, team) {
+    g.save();
+    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2);
+    g.fillStyle = "#fdfdfd"; g.fill();
+    g.lineWidth = 1; g.strokeStyle = "rgba(0,0,0,0.18)"; g.stroke();
+    if (ready(team.logo)) {
+      g.save(); g.beginPath(); g.arc(x, y, r - 1, 0, Math.PI * 2); g.clip();
+      const s = (r - 1) * 2; g.drawImage(team.logo, x - (r - 1), y - (r - 1), s, s);
+      g.restore();
+    } else {
+      g.strokeStyle = "#d33"; g.lineWidth = 1.6;
+      g.beginPath(); g.arc(x - r * 0.55, y, r * 1.05, -0.7, 0.7); g.stroke();
+      g.beginPath(); g.arc(x + r * 0.55, y, r * 1.05, Math.PI - 0.7, Math.PI + 0.7); g.stroke();
+      const tagW = 34, tagH = 15, ty = y - r - tagH - 4;
+      g.fillStyle = team.color; roundRect(g, x - tagW / 2, ty, tagW, tagH, 4); g.fill();
+      g.fillStyle = team.ink; g.font = "bold 10px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillText(team.abbr, x, ty + tagH / 2 + 0.5);
+      g.fillStyle = team.color;
+      g.beginPath(); g.moveTo(x - 3, ty + tagH); g.lineTo(x + 3, ty + tagH); g.lineTo(x, ty + tagH + 4); g.closePath(); g.fill();
+    }
+    g.restore();
+  }
+
+  // ======================= DRAW: runner ===================================
+  const PANTS = "#eceff3";
+  function drawRunner(g, cx, feet, ch, st) {
+    g.save(); g.translate(cx, feet);
+
+    if (st.duck) { drawDuck(g, ch); g.restore(); return; }
+
+    const air = !st.onGround;
+
+    // ---- ONLY THE LEGS ANIMATE. Torso, arms, head stay steady. ----
+    let backA, frontA;
+    if (air) { backA = 0.55; frontA = -0.42; }          // tucked while jumping
+    else { const s = Math.sin(st.runFrame) * 0.5; backA = s; frontA = -s; }
+    drawLeg(g, -1, backA, ch, true);
+    drawLeg(g, 7, frontA, ch, false);
+
+    // torso (steady)
+    g.fillStyle = "#f6f6f4"; roundRect(g, -11, -44, 24, 26, 6); g.fill();
+    g.fillStyle = ch.accent; g.fillRect(-11, -30, 24, 3);
+    g.strokeStyle = "rgba(20,30,55,0.16)"; g.lineWidth = 1;
+    for (let i = -8; i <= 10; i += 4) { g.beginPath(); g.moveTo(i, -43); g.lineTo(i, -19); g.stroke(); }
+    g.fillStyle = ch.primary; g.font = "bold 11px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillText(ch.num, 1, -31);
+
+    // arms — fixed running pose, no swing
+    drawArm(g, -6, -40, -0.5, ch);
+    drawArm(g, 9, -40, 0.55, ch);
+
+    drawHead(g, 2, -47, 0, ch);
+    g.restore();
+  }
+
+  function drawDuck(g, ch) {
+    g.save(); g.translate(0, -2);
+    // two bent legs tucked under
+    g.fillStyle = PANTS; g.fillRect(-12, -13, 9, 13); g.fillRect(3, -13, 9, 13);
+    g.fillStyle = ch.primary; g.fillRect(-12, -4, 9, 5); g.fillRect(3, -4, 9, 5);   // socks
+    g.fillStyle = "#111"; g.fillRect(-13, 0, 11, 4); g.fillRect(2, 0, 11, 4);       // cleats
+    // crouched torso
+    g.fillStyle = "#f6f6f4"; roundRect(g, -13, -32, 26, 20, 7); g.fill();
+    g.fillStyle = ch.accent; g.fillRect(-13, -23, 26, 3);
+    g.fillStyle = ch.primary; g.font = "bold 10px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillText(ch.num, 0, -21);
+    drawArm(g, 9, -28, 1.0, ch);   // one arm reaching forward
+    drawHead(g, 4, -24, 0.05, ch);
+    g.restore();
+  }
+
+  function drawLeg(g, hipX, angle, ch, back) {
+    g.save(); g.translate(hipX, -18); g.rotate(angle);
+    g.fillStyle = PANTS; g.fillRect(-4, 0, 8, 12);
+    g.fillStyle = ch.primary; if (back) g.globalAlpha = 0.82; g.fillRect(-3.5, 11, 7, 8); g.globalAlpha = 1;
+    g.fillStyle = "#111"; g.fillRect(-4, 18, 11, 4);
+    g.restore();
+  }
+  function drawArm(g, shX, shY, angle, ch) {
+    g.save(); g.translate(shX, shY + 4); g.rotate(angle);
+    g.fillStyle = "#f6f6f4"; g.fillRect(-3, 0, 6, 8);
+    g.fillStyle = ch.skin; g.fillRect(-3, 7, 6, 8);
+    g.restore();
+  }
+  function drawHead(g, cx, cy, tilt, ch) {
+    g.save(); g.translate(cx, cy); g.rotate(tilt);
+    if (ready(ch.face)) {
+      // real photo, circle-clipped, with a team-color cap brim on top
+      g.save(); g.beginPath(); g.arc(0, -1, 10, 0, Math.PI * 2); g.clip();
+      g.drawImage(ch.face, -11, -12, 22, 22); g.restore();
+      g.lineWidth = 1; g.strokeStyle = "rgba(0,0,0,0.15)"; g.beginPath(); g.arc(0, -1, 10, 0, Math.PI * 2); g.stroke();
+      g.fillStyle = ch.primary; g.beginPath(); g.arc(0, -3, 10, Math.PI * 1.02, Math.PI * 1.98); g.closePath(); g.fill();
+      g.fillStyle = ch.accent; g.fillRect(4, -4, 11, 3);
+    } else {
+      // clean cartoon face
+      g.fillStyle = ch.skin; g.beginPath(); g.arc(0, 0, 9, 0, Math.PI * 2); g.fill();
+      g.fillStyle = ch.primary; g.beginPath(); g.arc(0, -1, 9.5, Math.PI, Math.PI * 2); g.closePath(); g.fill();
+      g.fillStyle = ch.accent; g.fillRect(4, -2, 11, 3.5);
+      g.fillStyle = "#fff"; g.font = "bold 7px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillText(ch.mark, -1, -4);
+      g.fillStyle = "#111"; g.fillRect(3, -0.5, 2, 2);
+      g.strokeStyle = "#3a2417"; g.lineWidth = 1;
+      g.beginPath(); g.arc(3, 3, 2.4, 0.1, Math.PI - 0.3); g.stroke();
+    }
+    g.restore();
+  }
+
+  // ======================= DRAW: scenery / hud ============================
+  function drawGround(off) {
+    ctx.fillStyle = "#4b8b3b"; ctx.fillRect(0, GROUND_Y, W, 6);
+    ctx.fillStyle = "#3d7531"; ctx.fillRect(0, GROUND_Y + 6, W, H - GROUND_Y - 6);
+    ctx.fillStyle = "rgba(255,255,255,0.35)";
+    for (let i = 0; i < W + 40; i += 34) {
+      const x = ((i - (off % 34)) + W) % (W + 34);
+      ctx.fillRect(x, GROUND_Y + 10, 8, 2); ctx.fillRect(x + 16, GROUND_Y + 20, 5, 2);
+    }
+    ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, GROUND_Y + 1); ctx.lineTo(W, GROUND_Y + 1); ctx.stroke();
+  }
+  function drawClouds() {
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    for (const c of clouds) {
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, 10, 0, Math.PI * 2);
+      ctx.arc(c.x + 12, c.y + 3, 13, 0, Math.PI * 2);
+      ctx.arc(c.x + 26, c.y, 9, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  function drawHUD() {
+    ctx.fillStyle = "#1b2a42"; ctx.font = "bold 16px 'Courier New', monospace";
+    ctx.textAlign = "right"; ctx.textBaseline = "top";
+    ctx.fillText(String(Math.floor(score)).padStart(5, "0"), W - 16, 14);
+    ctx.fillStyle = "rgba(27,42,66,0.55)"; ctx.font = "bold 12px 'Courier New', monospace";
+    ctx.fillText("HI " + String(Math.floor(high)).padStart(5, "0"), W - 16, 34);
+    ctx.textAlign = "left"; ctx.fillStyle = "rgba(27,42,66,0.6)"; ctx.font = "bold 12px Arial";
+    ctx.fillText(ROSTER[charIndex].name + "  ·  " + diffKey.toUpperCase(), 16, 16);
+    if (muted) ctx.fillText("🔇", 16, 32);
+  }
+
+  // ======================= COLLISION ======================================
+  function playerBox() {
+    if (player.ducking) return { x: player.x - 16, y: player.y - 26, w: 46, h: 26 };
+    return { x: player.x - 10, y: player.y - 46, w: 22, h: 46 };
+  }
+  function hit(a, o) {
+    const bx = o.x - o.r + 3, by = o.cy - o.r + 3, bw = o.r * 2 - 6, bh = o.r * 2 - 6;
+    return a.x < bx + bw && a.x + a.w > bx && a.y < by + bh && a.y + a.h > by;
+  }
+
+  // ======================= LOOP ===========================================
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(2, (now - last) / 16.67); last = now;
+    ctx.clearRect(0, 0, W, H);
+
+    if (state === S.PLAYING) {
+      speed = Math.min(cfg.maxSpeed, speed + cfg.accel * dt);
+      distance += speed * dt;
+      const newScore = Math.floor(distance / 6);
+      if (Math.floor(newScore / 100) > Math.floor(score / 100)) { flashMilestone = 22; beep(880, 0.12, "sine", 0.06); }
+      score = newScore;
+
+      player.vy += GRAVITY * dt; player.y += player.vy * dt;
+      if (player.y >= GROUND_Y) { player.y = GROUND_Y; player.vy = 0; player.onGround = true; }
+
+      // stride cadence: scales gently with speed, capped so it never flickers
+      if (player.onGround) player.runFrame += Math.min(0.30, 0.045 * speed) * dt;
+
+      spawnGap -= speed * dt;
+      if (spawnGap <= 0) spawnObstacle();
+
+      for (const o of obstacles) o.x -= speed * dt;
+      obstacles = obstacles.filter(o => o.x > -60);
+      groundOffset += speed * dt;
+
+      const pb = playerBox();
+      for (const o of obstacles) {
+        if (hit(pb, o)) {
+          state = S.OVER; beep(140, 0.3, "sawtooth", 0.06);
+          if (score > high) { high = score; localStorage.setItem("mlbHigh", String(high)); }
+          goTitle.textContent = ROSTER[charIndex].name.split(" ")[0] + " struck out!";
+          goScore.textContent = "Score " + Math.floor(score) + "  ·  High " + Math.floor(high);
+          gameoverEl.classList.remove("hidden");
+          break;
+        }
+      }
+    }
+
+    for (const c of clouds) { c.x -= c.s * (state === S.PLAYING ? speed : 1) * 0.25 * dt; if (c.x < -40) { c.x = W + 40; c.y = 20 + Math.random() * 70; } }
+
+    drawClouds(); drawGround(groundOffset);
+    for (const o of obstacles) {
+      let cy = o.cy;
+      if (o.type === "fly") { o.bob += 0.15 * dt; cy = o.cy + Math.sin(o.bob) * 2; }
+      drawBaseball(ctx, o.x, cy, o.r, o.team);
+    }
+    if (state !== S.MENU) {
+      drawRunner(ctx, player.x, player.y, ROSTER[charIndex],
+        { duck: player.ducking, onGround: player.onGround, runFrame: player.runFrame });
+      drawHUD();
+    }
+
+    if (flashMilestone > 0) {
+      ctx.globalAlpha = flashMilestone / 22; ctx.fillStyle = "#ce1141";
+      ctx.textAlign = "center"; ctx.font = "bold 20px Arial"; ctx.fillText("+100!", W / 2, 44);
+      ctx.globalAlpha = 1; flashMilestone -= dt;
+    }
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // ======================= MENU UI ========================================
+  const menuEl = document.getElementById("menu");
+  const gameoverEl = document.getElementById("gameover");
+  const goTitle = document.getElementById("goTitle");
+  const goScore = document.getElementById("goScore");
+  const preview = document.getElementById("preview");
+  const pctx = preview.getContext("2d");
+  const pname = document.getElementById("pname");
+  const pteam = document.getElementById("pteam");
+
+  function renderPreview() {
+    const ch = ROSTER[charIndex];
+    pname.textContent = ch.name;
+    pteam.textContent = ch.team + " · #" + ch.num;
+    localStorage.setItem("mlbChar", String(charIndex));
+  }
+  let previewFrame = 0;
+  function animatePreview() {
+    pctx.clearRect(0, 0, preview.width, preview.height);
+    // little ground
+    pctx.fillStyle = "#4b8b3b"; pctx.fillRect(0, 108, preview.width, 20);
+    previewFrame += 0.14;
+    drawRunner(pctx, 75, 106, ROSTER[charIndex],
+      { duck: false, onGround: true, runFrame: previewFrame });
+    requestAnimationFrame(animatePreview);
+  }
+  animatePreview();
+
+  function changeChar(dir) {
+    charIndex = (charIndex + dir + ROSTER.length) % ROSTER.length;
+    renderPreview(); beep(440, 0.05, "square", 0.03);
+  }
+  function setDiff(k) {
+    diffKey = k; localStorage.setItem("mlbDiff", k);
+    document.querySelectorAll(".diffbtn").forEach(b => b.classList.toggle("active", b.dataset.diff === k));
+  }
+  function toMenu() {
+    state = S.MENU; obstacles = [];
+    gameoverEl.classList.add("hidden"); menuEl.classList.remove("hidden");
+  }
+
+  document.getElementById("prev").onclick = () => changeChar(-1);
+  document.getElementById("next").onclick = () => changeChar(1);
+  document.getElementById("playBtn").onclick = startGame;
+  document.getElementById("againBtn").onclick = startGame;
+  document.getElementById("menuBtn").onclick = toMenu;
+  document.getElementById("surprise").onclick = () => { charIndex = (Math.random() * ROSTER.length) | 0; renderPreview(); beep(700, 0.08, "sine", 0.05); };
+  document.querySelectorAll(".diffbtn").forEach(b => b.onclick = () => setDiff(b.dataset.diff));
+
+  setDiff(diffKey);
+  renderPreview();
+})();
+</script>
+</body>
+</html>
