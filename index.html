@@ -237,7 +237,7 @@
   // ======================= OPTIONAL REAL IMAGES ===========================
   // Drop files in img/players/<img>.png and img/logos/<abbr>.png to use them.
   // Missing files fall back to the drawn version automatically.
-  const ASSET_VER = "9";  // bump to force phones/browsers to reload images + audio
+  const ASSET_VER = "10";  // bump to force phones/browsers to reload images + audio
   function loadImg(src) { const im = new Image(); im.src = src + "?v=" + ASSET_VER; return im; }
   ROSTER.forEach(c => { c.face = loadImg("img/players/" + c.img + ".png"); });
   TEAMS.forEach(t => { t.logo = loadImg("img/logos/" + t.abbr.toLowerCase() + ".png"); });
@@ -326,17 +326,18 @@
     crowd:    makeSfx("crowd.mp3",    true,  0.5),
     hit:      makeSfx("hit.mp3",      false, 0.85),
     cheer:    makeSfx("cheer.mp3",    false, 0.85),
-    out:      makeSfx("out.mp3",      false, 0.85),
+    out:      makeSfx("out.mp3",      false, 0.9),
+    homerun:  makeSfx("homerun.mp3",  false, 0.9),
     win:      makeSfx("win.mp3",      true,  0.7),
   };
   function playFile(a) { if (muted || !a || !a._ok) return false; try { a.currentTime = 0; a.play(); return true; } catch (e) { return false; } }
-  function startBall() { playFile(SFX.playball); }
+  function startBall() { return playFile(SFX.playball); }
   let crowdFile = false;
 
   function startCrowd() {
     ensureAudio();
     if (SFX.crowd._ok) { crowdFile = true; SFX.crowd.volume = muted ? 0 : 0.5; try { SFX.crowd.currentTime = 0; SFX.crowd.play(); } catch (e) {} return; }
-    if (!audioCtx) return; stopSynthCrowd();
+    if (!richSound() || !audioCtx) return; stopSynthCrowd();   // synth crowd only in V3
     crowdSrc = audioCtx.createBufferSource(); crowdSrc.buffer = noiseBuffer(2.2); crowdSrc.loop = true;
     const f = audioCtx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 720;
     crowdGain = audioCtx.createGain(); crowdGain.gain.value = muted ? 0 : CROWD_BASE;
@@ -380,6 +381,16 @@
     });
   }
   function stopWinMusic() { if (SFX.win._ok) { try { SFX.win.pause(); } catch (e) {} } }
+  // Event sounds — play the real file if present, else a synth fallback (any version)
+  function sfxOut() {
+    stopCrowd();
+    if (playFile(SFX.out)) return;
+    if (richSound()) groan(); else beep(140, 0.3, "sawtooth", 0.06);
+  }
+  function sfxHomeRun() {
+    if (playFile(SFX.homerun)) return;
+    if (richSound()) cheer(); else beep(900, 0.14, "sine", 0.06);
+  }
   function crack() {
     if (muted) return;
     if (playFile(SFX.hit)) return;
@@ -455,8 +466,8 @@
     resetLevelSpawns();
     stopWinMusic();
     menuEl.classList.add("hidden"); gameoverEl.classList.add("hidden"); winEl.classList.add("hidden");
-    if (richSound()) { ensureAudio(); startCrowd(); startBall(); }
-    else beep(660, 0.1, "square", 0.05);
+    ensureAudio(); startCrowd();                         // crowd loop (file any version; synth in V3)
+    if (!startBall() && !richSound()) beep(660, 0.1, "square", 0.05);   // "Play Ball!" if provided
   }
 
   function onLevelUp() {
@@ -464,7 +475,7 @@
     speed = Math.min(effMax(), speed + 0.6); makeStars();
     obstacles = []; spawnGap = 320; resetLevelSpawns();   // fresh slate for the new inning
     celebrating = true; celebrateTimer = 52;         // brief crowd-roar celebration
-    if (richSound()) cheer(); else beep(900, 0.14, "sine", 0.06);
+    sfxHomeRun();                                    // "HOME RUN!" on finishing a level
   }
   function makeConfetti() {
     confetti = [];
@@ -1176,7 +1187,7 @@
           }
         }
         if (died) {
-          state = S.OVER; if (richSound()) groan(); else beep(140, 0.3, "sawtooth", 0.06);
+          state = S.OVER; sfxOut();
           if (score > high) { high = score; localStorage.setItem("mlbHigh", String(high)); }
           goTitle.textContent = ROSTER[charIndex].name.split(" ")[0] + " struck out!";
           goScore.textContent = "Score " + Math.floor(score) + "  ·  High " + Math.floor(high);
