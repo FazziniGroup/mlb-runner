@@ -22,20 +22,12 @@
   .title h1 .red { color: #ce1141; }
   .title .byline { margin: 3px 0 0; font-size: 13px; font-weight: 800; color: #ffd23f; letter-spacing: 0.5px; }
   .title p { margin: 4px 0 0; font-size: 13px; opacity: 0.6; }
-  .powerbtn {
-    position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 45; display: none;
-    width: 46px; height: 46px; border-radius: 50%; border: 3px solid #fff; background: #fff; color: #111;
-    font-size: 22px; line-height: 1; cursor: pointer; box-shadow: 0 3px 12px rgba(0,0,0,0.45);
-    animation: powerPulse 0.9s ease-in-out infinite; touch-action: none;
-  }
-  .powerbtn.on { display: block; }
   .soundbtn {
     position: absolute; bottom: 8px; left: 8px; z-index: 46; display: none;
     width: 34px; height: 34px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,0.6);
     background: rgba(10,18,30,0.5); color: #fff; font-size: 16px; line-height: 1; cursor: pointer; touch-action: none;
   }
   .soundbtn.on { display: block; }
-  @keyframes powerPulse { 0%,100% { transform: translateX(-50%) scale(1); box-shadow: 0 3px 12px rgba(0,0,0,0.45); } 50% { transform: translateX(-50%) scale(1.14); box-shadow: 0 0 18px rgba(255,210,63,0.9); } }
 
   .stage {
     position: relative;
@@ -150,8 +142,6 @@
     <div class="stage">
       <canvas id="game" width="900" height="260"></canvas>
 
-      <!-- Secret-character power button (⚾) -->
-      <button class="powerbtn" id="powerBtn" title="Big Boy Powers!">⚾</button>
       <!-- sound toggle -->
       <button class="soundbtn" id="soundBtn">🔊</button>
 
@@ -487,7 +477,7 @@
   const CELEB_LEN = 84;
   let goalActive = false;                             // home-plate goal at the end of a level
   let starMode = false, batMode = false, jumpTimes = [], ghostFlash = 0, crushBursts = [];   // secret powers
-  let starTimer = 0;                 // >0 = timed star (golden bat); Infinity = permanent (secret)
+  let starTimer = 0, batTimer = 0;   // >0 = timed power; Infinity = permanent (secret cheat)
   let floaters = [], treatsLeft = 0, batLeft = 0;   // pickups + golden bat
   let sizeLevel = 0, iframes = 0, hrSoundPlayed = false;   // Mario-style grow/shrink
   const PICKUPS = ["hotdog", "soda", "gum", "seeds", "crackerjack"];   // good — collect to grow bigger
@@ -507,7 +497,8 @@
   function makeStars() { stars = []; for (let i = 0; i < 42; i++) stars.push({ x: Math.random() * W, y: Math.random() * (GROUND_Y - 34), a: 0.3 + Math.random() * 0.6 }); }
   function effMax() { return cfg.maxSpeed + Math.min(levelIdx, 3) * 0.7; }   // speed stops climbing after L4
   function activateStar(frames) { starMode = true; starTimer = frames; }
-  function resetLevelSpawns() { treatsLeft = 1 + (Math.random() < 0.5 ? 1 : 0); batLeft = levelIdx >= 4 ? 1 : 0; }
+  function activateBat(frames) { batMode = true; batTimer = frames; ghostFlash = 60; }
+  function resetLevelSpawns() { treatsLeft = 1 + (Math.random() < 0.5 ? 1 : 0); batLeft = 1; }   // a flying bat ~once per level
   makeStars();
 
   for (let i = 0; i < 4; i++) clouds.push({ x: Math.random() * W, y: 24 + Math.random() * 70, s: 0.3 + Math.random() * 0.4 });
@@ -524,7 +515,7 @@
     oppTeams = TEAMS.filter(t => t.abbr !== me.abbr);
     if (oppTeams.length === 0) oppTeams = TEAMS;
     levelIdx = 0; champShown = false; levelFlash = 0; makeStars();
-    starMode = false; batMode = false; starTimer = 0; jumpTimes = []; ghostFlash = 0; crushBursts = []; floaters = [];
+    starMode = false; batMode = false; starTimer = 0; batTimer = 0; jumpTimes = []; ghostFlash = 0; crushBursts = []; floaters = [];
     sizeLevel = 0; iframes = 0; hrSoundPlayed = false; goalActive = false;
     resetLevelSpawns();
     stopWinMusic();
@@ -533,11 +524,13 @@
     if (!startBall()) chargeRiff();                 // "Play Ball!" file, else the CHARGE! riff
   }
 
-  function onLevelUp() {
+  function advanceLevel() {
+    levelIdx++;
     speed = Math.min(effMax(), speed + 0.4); makeStars();
-    obstacles = []; spawnGap = 320; resetLevelSpawns();
-    celebrating = true; celebrateTimer = CELEB_LEN; hrSoundPlayed = false; levelFlash = 0; goalActive = false;
-    beep(784, 0.1, "sine", 0.05);   // pleasant level-clear ding; HOME RUN sound plays at contact
+    obstacles = []; spawnGap = 320; resetLevelSpawns(); goalActive = false;
+    player.y = GROUND_Y; player.vy = 0; player.onGround = true; player.ducking = false;
+    levelFlash = 92; levelFlashName = LEVELS[levelIdx].team + " · " + LEVELS[levelIdx].name;
+    state = S.PLAYING;
   }
   function makeConfetti() {
     confetti = [];
@@ -602,7 +595,7 @@
   function activatePower() {
     const ch = ROSTER[charIndex];
     if (state !== S.PLAYING || !ch.secret) return;
-    if (ch.power === "bat") { if (!batMode) { batMode = true; ghostFlash = 60; if (richSound()) cheer(); else beep(660, 0.25, "square", 0.06); } }
+    if (ch.power === "bat") { if (!batMode) { activateBat(Infinity); if (richSound()) cheer(); else beep(660, 0.25, "square", 0.06); } }
     else { if (!starMode) { activateStar(Infinity); ghostFlash = 60; if (richSound()) cheer(); else beep(880, 0.25, "triangle", 0.06); } }
   }
   function doJump() {
@@ -648,7 +641,12 @@
   const isTouch = (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) || ("ontouchstart" in window);
   // Desktop/mouse: tap top = jump, hold bottom = slide. (Phones use the on-screen buttons.)
   canvas.addEventListener("pointerdown", (e) => {
-    if (state === S.PITCH) { e.preventDefault(); throwPitch(); return; }   // tap to throw a strike (any device)
+    if (state === S.PITCH) { e.preventDefault(); throwPitch(); return; }   // tap to swing (any device)
+    if (state === S.PLAYING) {   // secret cheat: click the little ball by the scoreboard
+      const rect = canvas.getBoundingClientRect();
+      const px = (e.clientX - rect.left) / rect.width * W, py = (e.clientY - rect.top) / rect.height * H;
+      if (Math.hypot(px - (W - 26), py - 52) <= 22) { e.preventDefault(); activatePower(); return; }
+    }
     if (state !== S.PLAYING || isTouch) return;
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
@@ -683,8 +681,6 @@
   btnSlide.addEventListener("pointerdown", (e) => { e.preventDefault(); setDuck(true); });
   btnSlide.addEventListener("pointerup", (e) => { e.preventDefault(); setDuck(false); });
   btnSlide.addEventListener("pointerleave", () => setDuck(false));
-  const powerBtn = document.getElementById("powerBtn");
-  powerBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); activatePower(); });
 
   // Full-screen / immersive mode
   const touchEl = document.getElementById("touch");
@@ -1328,6 +1324,8 @@
     ctx.fillText(String(Math.floor(score)).padStart(5, "0"), W - 14, 12);
     ctx.fillStyle = inkDim; ctx.font = "bold 12px 'Courier New', monospace";
     ctx.fillText("HI " + String(Math.floor(high)).padStart(5, "0"), W - 14, 33);
+    // tiny secret cheat ball by the scoreboard — click it for Big Boy Powers (secret chars)
+    ctx.globalAlpha = 0.72; drawPlainBall(W - 26, 52, 9); ctx.globalAlpha = 1;
     // player tag (tiny, bottom-center)
     ctx.textAlign = "center"; ctx.textBaseline = "alphabetic"; ctx.fillStyle = inkDim; ctx.font = "bold 10px Arial";
     ctx.fillText(ROSTER[charIndex].name + " · " + diffKey.toUpperCase() + " · V" + version, W / 2, H - 8);
@@ -1404,6 +1402,11 @@
           if (starTimer <= 60 && Math.floor(starTimer) % 12 === 0) beep(1200, 0.05, "square", 0.04);
           if (starTimer <= 0) { starMode = false; starTimer = 0; beep(200, 0.2, "sawtooth", 0.05); }
         }
+        if (batMode && batTimer !== Infinity) {
+          batTimer -= dt;
+          if (batTimer <= 60 && Math.floor(batTimer) % 12 === 0) beep(1200, 0.05, "square", 0.04);
+          if (batTimer <= 0) { batMode = false; batTimer = 0; beep(200, 0.2, "sawtooth", 0.05); }
+        }
 
         spawnGap -= speed * dt;
         if (spawnGap <= 0) spawnObstacle();
@@ -1424,8 +1427,8 @@
         for (const o of obstacles) {
           if (o.type === "finish" || o.gone || !hit(pb, o)) continue;
           if (o.type === "goldenbat") {
-            o.gone = true; activateStar(300); ghostFlash = 40;
-            floaters.push({ x: o.x, y: o.baseY - o.h, txt: "⚡ GOLDEN BAT!", t: 44, c: "#ffd23f" });
+            o.gone = true; activateBat(300);   // flying bat -> 5s of bat-smash for anyone
+            floaters.push({ x: o.x, y: o.baseY - o.h, txt: "🏏 BAT POWER!", t: 44, c: "#ffd23f" });
             crushBursts.push({ x: o.x, y: o.baseY - o.h / 2, t: 18 });
             if (richSound()) cheer(); else beep(1046, 0.14, "square", 0.05);
           } else if (o.pickup) {
@@ -1531,7 +1534,6 @@
 
     if (touchEl) touchEl.classList.toggle("on", isTouch && state === S.PLAYING);
     if (soundBtn) soundBtn.classList.toggle("on", state !== S.MENU);
-    if (powerBtn) powerBtn.classList.toggle("on", state === S.PLAYING && ROSTER[charIndex].secret && !batMode && !starMode);
 
     requestAnimationFrame(frame);
   }
