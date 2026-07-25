@@ -723,20 +723,29 @@
     else drawFood(o.type, o.x, o.baseY + oy, o.w, o.h);
   }
 
-  // shared angry face — used by the baseballs AND the umpires
+  // shared SCARY angry face — used by the baseballs AND the umpires
   function drawMeanFace(g, cx, cy, r) {
     g.lineCap = "round";
-    g.strokeStyle = "#141414"; g.lineWidth = Math.max(2, r * 0.17);
-    g.beginPath(); g.moveTo(cx - r * 0.5, cy - r * 0.44); g.lineTo(cx - r * 0.1, cy - r * 0.2); g.stroke();
-    g.beginPath(); g.moveTo(cx + r * 0.5, cy - r * 0.44); g.lineTo(cx + r * 0.1, cy - r * 0.2); g.stroke();
-    g.fillStyle = "#fff"; g.strokeStyle = "#141414"; g.lineWidth = 1.5;
-    g.beginPath(); g.arc(cx - r * 0.26, cy - r * 0.05, r * 0.18, 0, Math.PI * 2); g.fill(); g.stroke();
-    g.beginPath(); g.arc(cx + r * 0.26, cy - r * 0.05, r * 0.18, 0, Math.PI * 2); g.fill(); g.stroke();
-    g.fillStyle = "#111";
-    g.beginPath(); g.arc(cx - r * 0.2, cy - r * 0.01, r * 0.09, 0, Math.PI * 2); g.fill();
-    g.beginPath(); g.arc(cx + r * 0.32, cy - r * 0.01, r * 0.09, 0, Math.PI * 2); g.fill();
-    g.strokeStyle = "#141414"; g.lineWidth = Math.max(1.8, r * 0.14);
-    g.beginPath(); g.arc(cx, cy + r * 0.82, r * 0.34, Math.PI * 1.18, Math.PI * 1.82); g.stroke();
+    // steep furrowed brows
+    g.strokeStyle = "#0e0e0e"; g.lineWidth = Math.max(2.4, r * 0.2);
+    g.beginPath(); g.moveTo(cx - r * 0.56, cy - r * 0.52); g.lineTo(cx - r * 0.06, cy - r * 0.13); g.stroke();
+    g.beginPath(); g.moveTo(cx + r * 0.56, cy - r * 0.52); g.lineTo(cx + r * 0.06, cy - r * 0.13); g.stroke();
+    // glaring eyes with red pupils
+    g.fillStyle = "#fff"; g.strokeStyle = "#0e0e0e"; g.lineWidth = 1.4;
+    g.beginPath(); g.arc(cx - r * 0.27, cy + r * 0.02, r * 0.2, 0, Math.PI * 2); g.fill(); g.stroke();
+    g.beginPath(); g.arc(cx + r * 0.27, cy + r * 0.02, r * 0.2, 0, Math.PI * 2); g.fill(); g.stroke();
+    g.fillStyle = "#d81f1f";
+    g.beginPath(); g.arc(cx - r * 0.21, cy + r * 0.07, r * 0.11, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.arc(cx + r * 0.33, cy + r * 0.07, r * 0.11, 0, Math.PI * 2); g.fill();
+    g.fillStyle = "#000";
+    g.beginPath(); g.arc(cx - r * 0.21, cy + r * 0.07, r * 0.055, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.arc(cx + r * 0.33, cy + r * 0.07, r * 0.055, 0, Math.PI * 2); g.fill();
+    // snarling mouth with jagged fangs
+    g.fillStyle = "#360a0a";
+    g.beginPath(); g.moveTo(cx - r * 0.42, cy + r * 0.46); g.lineTo(cx + r * 0.42, cy + r * 0.46); g.lineTo(cx + r * 0.3, cy + r * 0.88); g.lineTo(cx - r * 0.3, cy + r * 0.88); g.closePath(); g.fill();
+    g.fillStyle = "#fff";
+    const mL = cx - r * 0.4, mR = cx + r * 0.4, ty = cy + r * 0.46, n = 5, step = (mR - mL) / n;
+    for (let i = 0; i < n; i++) { const x = mL + i * step; g.beginPath(); g.moveTo(x, ty); g.lineTo(x + step, ty); g.lineTo(x + step * 0.5, ty + r * 0.24); g.closePath(); g.fill(); }
   }
   // Big MEAN baseball — bold outline, seams, angry face
   function drawTeamBall(cx, cy, r, team) {
