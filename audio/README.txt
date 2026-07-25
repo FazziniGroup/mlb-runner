@@ -13,3 +13,5 @@ and there is NO robot voice anymore.
 Tip: rip short clips from YouTube (a bat crack, a crowd loop, an umpire
 "play ball"), convert to mp3, name them as above, drop them in this folder.
 Keep them SHORT so they load fast on the phone.
+
+  win.mp3        victory music -- loops during the World Series celebration

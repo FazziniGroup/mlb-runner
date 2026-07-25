@@ -44,6 +44,9 @@
     overflow-y: auto;
   }
   .overlay.hidden { display: none; }
+  /* win bar: let the canvas celebration show through, only buttons clickable */
+  .overlay.winbar { background: transparent; backdrop-filter: none; justify-content: flex-end; pointer-events: none; padding-bottom: 18px; }
+  .winbtns { display: flex; gap: 10px; pointer-events: auto; }
   .overlay h2 { margin: 0; font-size: clamp(18px, 4vw, 26px); }
   .overlay .sub { font-size: 13px; opacity: 0.8; margin-top: -6px; }
 
@@ -140,6 +143,14 @@
         </div>
       </div>
 
+      <!-- WORLD SERIES WIN (transparent bar so the celebration shows) -->
+      <div class="overlay winbar hidden" id="win">
+        <div class="winbtns">
+          <button class="play" id="winAgain">Play Again ▶</button>
+          <button class="ghost" id="winMenu">Menu</button>
+        </div>
+      </div>
+
       <!-- GAME OVER -->
       <div class="overlay hidden" id="gameover">
         <h2 id="goTitle">Struck out!</h2>
@@ -196,7 +207,7 @@
   // ======================= OPTIONAL REAL IMAGES ===========================
   // Drop files in img/players/<img>.png and img/logos/<abbr>.png to use them.
   // Missing files fall back to the drawn version automatically.
-  const ASSET_VER = "6";  // bump to force phones/browsers to reload images + audio
+  const ASSET_VER = "7";  // bump to force phones/browsers to reload images + audio
   function loadImg(src) { const im = new Image(); im.src = src + "?v=" + ASSET_VER; return im; }
   ROSTER.forEach(c => { c.face = loadImg("img/players/" + c.img + ".png"); });
   TEAMS.forEach(t => { t.logo = loadImg("img/logos/" + t.abbr.toLowerCase() + ".png"); });
@@ -279,6 +290,7 @@
     hit:      makeSfx("hit.mp3",      false, 0.85),
     cheer:    makeSfx("cheer.mp3",    false, 0.85),
     out:      makeSfx("out.mp3",      false, 0.85),
+    win:      makeSfx("win.mp3",      true,  0.7),
   };
   function playFile(a) { if (muted || !a || !a._ok) return false; try { a.currentTime = 0; a.play(); return true; } catch (e) { return false; } }
   function startBall() { playFile(SFX.playball); }
@@ -316,6 +328,21 @@
     g.gain.setValueAtTime(0.05, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
     o.connect(g); g.connect(audioCtx.destination); o.start(t); o.stop(t + 0.62);
   }
+  function fanfare() {
+    if (muted) return;
+    if (playFile(SFX.win)) return;             // real music file if provided
+    ensureAudio(); if (!audioCtx) return;      // else a cheerful synth fanfare
+    const notes = [523, 659, 784, 1047, 880, 1047, 1319];
+    const t0 = audioCtx.currentTime;
+    notes.forEach((f, i) => {
+      const t = t0 + i * 0.15;
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = "square"; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.08, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+      o.connect(g); g.connect(audioCtx.destination); o.start(t); o.stop(t + 0.22);
+    });
+  }
+  function stopWinMusic() { if (SFX.win._ok) { try { SFX.win.pause(); } catch (e) {} } }
   function crack() {
     if (muted) return;
     if (playFile(SFX.hit)) return;
@@ -332,8 +359,9 @@
   }
 
   // ======================= STATE ==========================================
-  const S = { MENU: 0, PLAYING: 1, OVER: 2 };
+  const S = { MENU: 0, PLAYING: 1, OVER: 2, WIN: 3 };
   let state = S.MENU;
+  let winTimer = 0, confetti = [];
 
   let charIndex = Number(localStorage.getItem("mlbChar") || 0);
   if (charIndex < 0 || charIndex >= ROSTER.length) charIndex = 0;
@@ -375,7 +403,8 @@
     oppTeams = TEAMS.filter(t => t.abbr !== me.abbr);
     if (oppTeams.length === 0) oppTeams = TEAMS;
     levelIdx = 0; champShown = false; levelFlash = 0; makeStars();
-    menuEl.classList.add("hidden"); gameoverEl.classList.add("hidden");
+    stopWinMusic();
+    menuEl.classList.add("hidden"); gameoverEl.classList.add("hidden"); winEl.classList.add("hidden");
     if (richSound()) { ensureAudio(); startCrowd(); startBall(); }
     else beep(660, 0.1, "square", 0.05);
   }
@@ -385,9 +414,22 @@
     speed = Math.min(effMax(), speed + 0.6); makeStars();
     if (richSound()) cheer(); else beep(900, 0.14, "sine", 0.06);
   }
+  function makeConfetti() {
+    confetti = [];
+    const cols = ["#ce1141", "#13274f", "#ffd23f", "#ffffff", "#2e8b57", "#ff5910", "#e81828"];
+    for (let i = 0; i < 140; i++) confetti.push({
+      x: Math.random() * W, y: -Math.random() * H,
+      vx: (Math.random() - 0.5) * 2, vy: 1.5 + Math.random() * 2.5,
+      s: 3 + Math.random() * 4, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 0.4,
+      c: cols[(Math.random() * cols.length) | 0],
+    });
+  }
   function onChamp() {
-    levelFlash = 150; levelFlashName = "WORLD SERIES CHAMPS!";
-    if (richSound()) cheer(); else beep(1046, 0.2, "sine", 0.07);
+    champShown = true;
+    state = S.WIN; winTimer = 0; makeConfetti();
+    if (score > high) { high = score; localStorage.setItem("mlbHigh", String(high)); }
+    if (richSound()) { cheer(); fanfare(); } else { fanfare(); }
+    winEl.classList.remove("hidden");
   }
 
   // ======================= SPAWNING =======================================
@@ -396,6 +438,16 @@
     return minGap + Math.random() * cfg.gapExtra;
   }
   function spawnObstacle() {
+    // Last two ballparks (Fenway, Yankee): random baseballs in the air between
+    // the umps — some bob up and down — so you have to move up AND down.
+    if (levelIdx >= 4 && Math.random() < 0.42) {
+      const high = Math.random() < 0.5;
+      const baseY = high ? GROUND_Y - 40 : GROUND_Y - 16;
+      const amp = Math.random() < 0.6 ? 10 + Math.random() * 10 : 0;
+      obstacles.push({ type: "ball", x: W + 20, w: 22, h: 22, baseY, bob: Math.random() * 6.28, bobY: 0, amp });
+      spawnGap = nextGap() * 0.72;
+      return;
+    }
     const canFly = score >= cfg.flyStart;
     if (canFly && Math.random() < cfg.flyChance) {
       // flying ump (arm up calling you OUT) — duck under it
@@ -428,7 +480,7 @@
       else if (e.code === "Space" || e.code === "Enter") { e.preventDefault(); startGame(); }
       return;
     }
-    if (state === S.OVER) {
+    if (state === S.OVER || state === S.WIN) {
       if (e.code === "Space" || e.code === "Enter") { e.preventDefault(); startGame(); }
       else if (e.code === "Escape") { toMenu(); }
       return;
@@ -493,6 +545,15 @@
   }
 
   // ======================= DRAW: umpire (the bad guy) =====================
+  function drawBall(cx, cy, r) {
+    const g = ctx; g.save();
+    g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fillStyle = "#fdfdfd"; g.fill();
+    g.lineWidth = 1; g.strokeStyle = "rgba(0,0,0,0.2)"; g.stroke();
+    g.strokeStyle = "#d33"; g.lineWidth = 1.4;
+    g.beginPath(); g.arc(cx - r * 0.6, cy, r * 1.05, -0.6, 0.6); g.stroke();
+    g.beginPath(); g.arc(cx + r * 0.6, cy, r * 1.05, Math.PI - 0.6, Math.PI + 0.6); g.stroke();
+    g.restore();
+  }
   function drawUmpire(cx, baseY, w, h, fly) {
     const g = ctx; g.save(); g.translate(cx, baseY);
     const hw = w / 2;
@@ -552,10 +613,10 @@
     g.fillText(ch.num, 1, -31);
 
     // arms — fixed running pose, no swing
-    drawArm(g, -6, -40, -0.5, ch);
-    drawArm(g, 9, -40, 0.55, ch);
+    if (st.party) { drawArm(g, -8, -42, -2.5, ch); drawArm(g, 10, -42, 2.5, ch); }
+    else { drawArm(g, -6, -40, -0.5, ch); drawArm(g, 9, -40, 0.55, ch); }
 
-    drawHead(g, 2, -49, 0, ch);
+    drawHead(g, 2, -49, 0, ch, st.party);
     g.restore();
   }
 
@@ -588,7 +649,7 @@
     g.fillStyle = ch.skin; g.fillRect(-3, 7, 6, 8);
     g.restore();
   }
-  function drawHead(g, cx, cy, tilt, ch) {
+  function drawHead(g, cx, cy, tilt, ch, party) {
     g.save(); g.translate(cx, cy); g.rotate(tilt);
     const R = 14;  // big "bobblehead" size so the face reads clearly
     if (useImg(ch.face)) {
@@ -606,6 +667,17 @@
       g.fillStyle = "#111"; g.fillRect(4.5, 1.5, 2.6, 2.6);
       g.strokeStyle = "#3a2417"; g.lineWidth = 1.2;
       g.beginPath(); g.arc(5, 6, 3.2, 0.1, Math.PI - 0.3); g.stroke();
+    }
+    if (party) {
+      // "deal with it" pixel shades
+      g.fillStyle = "#111";
+      g.fillRect(-R * 0.92, -3, R * 0.82, R * 0.5);
+      g.fillRect(R * 0.10, -3, R * 0.82, R * 0.5);
+      g.fillRect(-R * 0.1, -2, R * 0.2, 3);
+      // big open meme mouth
+      g.fillStyle = "#5a1010";
+      g.beginPath(); g.ellipse(0, R * 0.62, R * 0.34, R * 0.3, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = "#fff"; g.fillRect(-R * 0.26, R * 0.44, R * 0.52, 2);
     }
     g.restore();
   }
@@ -736,6 +808,42 @@
         break;
     }
   }
+  function drawTrophy(x, baseY, s) {
+    const g = ctx; g.save(); g.translate(x, baseY); g.scale(s, s);
+    g.fillStyle = "#caa63a"; g.fillRect(-26, 0, 52, 10); g.fillRect(-18, -8, 36, 10);
+    g.strokeStyle = "#e9c85a"; g.lineWidth = 2;
+    for (let i = -5; i <= 5; i++) {
+      const px = i * 5;
+      g.beginPath(); g.moveTo(px, -8); g.lineTo(px, -52); g.stroke();
+      g.fillStyle = i % 2 ? "#ce1141" : "#13274f";
+      g.beginPath(); g.moveTo(px, -52); g.lineTo(px + 6, -48); g.lineTo(px, -44); g.closePath(); g.fill();
+    }
+    g.fillStyle = "#f2d24b"; g.beginPath(); g.arc(0, -58, 8, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = "#b8901f"; g.lineWidth = 1; g.stroke();
+    g.restore();
+  }
+  function drawCelebration(dt) {
+    winTimer += dt;
+    drawSky(); if (!LEVELS[levelIdx].night) drawClouds(); drawPark(); drawGround(groundOffset);
+    for (const p of confetti) {
+      p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt;
+      if (p.y > GROUND_Y + 12) { p.y = -8; p.x = Math.random() * W; }
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.fillStyle = p.c; ctx.fillRect(-p.s / 2, -p.s / 2, p.s, p.s); ctx.restore();
+    }
+    drawTrophy(W * 0.62, 150, 1 + Math.sin(winTimer * 0.1) * 0.04);
+    const hop = Math.abs(Math.sin(winTimer * 0.22)) * 22;
+    player.runFrame += 0.35 * dt;
+    drawRunner(ctx, player.x + 10, GROUND_Y - hop, ROSTER[charIndex], { duck: false, onGround: true, runFrame: player.runFrame, party: true });
+    const pulse = 1 + Math.sin(winTimer * 0.2) * 0.06;
+    ctx.save(); ctx.textAlign = "center";
+    ctx.lineWidth = 4; ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.font = "bold " + Math.round(30 * pulse) + "px Arial";
+    ctx.strokeText("WORLD SERIES CHAMPS!", W / 2, 46);
+    ctx.fillStyle = "#ffd23f"; ctx.fillText("WORLD SERIES CHAMPS!", W / 2, 46);
+    ctx.fillStyle = "rgba(255,255,255,0.95)"; ctx.font = "bold 14px Arial";
+    ctx.fillText(ROSTER[charIndex].name + "  •  " + LEVELS[LEVELS.length - 1].team + "  •  Score " + Math.floor(score), W / 2, 68);
+    ctx.restore();
+  }
+
   function drawHUD() {
     const night = LEVELS[levelIdx].night;
     const ink = night ? "rgba(255,255,255,0.95)" : "#1b2a42";
@@ -771,6 +879,8 @@
     const dt = Math.min(2, (now - last) / 16.67); last = now;
     ctx.clearRect(0, 0, W, H);
 
+    if (state === S.WIN) { drawCelebration(dt); requestAnimationFrame(frame); return; }
+
     if (state === S.PLAYING) {
       speed = Math.min(effMax(), speed + cfg.accel * dt);
       distance += speed * dt;
@@ -791,7 +901,11 @@
       spawnGap -= speed * dt;
       if (spawnGap <= 0) spawnObstacle();
 
-      for (const o of obstacles) { o.x -= speed * dt; if (o.type === "fly") { o.bob += 0.15 * dt; o.bobY = Math.sin(o.bob) * 3; } }
+      for (const o of obstacles) {
+        o.x -= speed * dt;
+        if (o.type === "fly") { o.bob += 0.15 * dt; o.bobY = Math.sin(o.bob) * 3; }
+        else if (o.type === "ball" && o.amp) { o.bob += 0.12 * dt; o.bobY = Math.sin(o.bob) * o.amp; }
+      }
       obstacles = obstacles.filter(o => o.x > -70);
       groundOffset += speed * dt;
 
@@ -814,7 +928,10 @@
     if (!LEVELS[levelIdx].night) drawClouds();
     drawPark();
     drawGround(groundOffset);
-    for (const o of obstacles) drawUmpire(o.x, o.baseY + (o.bobY || 0), o.w, o.h, o.type === "fly");
+    for (const o of obstacles) {
+      if (o.type === "ball") drawBall(o.x, o.baseY - o.h / 2 + (o.bobY || 0), o.w / 2);
+      else drawUmpire(o.x, o.baseY + (o.bobY || 0), o.w, o.h, o.type === "fly");
+    }
     if (state !== S.MENU) {
       drawRunner(ctx, player.x, player.y, ROSTER[charIndex],
         { duck: player.ducking, onGround: player.onGround, runFrame: player.runFrame });
@@ -845,6 +962,7 @@
   // ======================= MENU UI ========================================
   const menuEl = document.getElementById("menu");
   const gameoverEl = document.getElementById("gameover");
+  const winEl = document.getElementById("win");
   const goTitle = document.getElementById("goTitle");
   const goScore = document.getElementById("goScore");
   const preview = document.getElementById("preview");
@@ -883,8 +1001,8 @@
     document.querySelectorAll("#ver .diffbtn").forEach(b => b.classList.toggle("active", Number(b.dataset.ver) === v));
   }
   function toMenu() {
-    state = S.MENU; obstacles = []; levelIdx = 0; stopCrowd();
-    gameoverEl.classList.add("hidden"); menuEl.classList.remove("hidden");
+    state = S.MENU; obstacles = []; levelIdx = 0; stopCrowd(); stopWinMusic();
+    gameoverEl.classList.add("hidden"); winEl.classList.add("hidden"); menuEl.classList.remove("hidden");
   }
 
   document.getElementById("prev").onclick = () => changeChar(-1);
@@ -892,6 +1010,8 @@
   document.getElementById("playBtn").onclick = startGame;
   document.getElementById("againBtn").onclick = startGame;
   document.getElementById("menuBtn").onclick = toMenu;
+  document.getElementById("winAgain").onclick = startGame;
+  document.getElementById("winMenu").onclick = toMenu;
   document.getElementById("surprise").onclick = () => { charIndex = (Math.random() * ROSTER.length) | 0; renderPreview(); beep(700, 0.08, "sine", 0.05); };
   document.querySelectorAll("#diff .diffbtn").forEach(b => b.onclick = () => setDiff(b.dataset.diff));
   document.querySelectorAll("#ver .diffbtn").forEach(b => b.onclick = () => setVersion(Number(b.dataset.ver)));
