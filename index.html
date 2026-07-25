@@ -196,18 +196,27 @@
   // ======================= OPTIONAL REAL IMAGES ===========================
   // Drop files in img/players/<img>.png and img/logos/<abbr>.png to use them.
   // Missing files fall back to the drawn version automatically.
-  function loadImg(src) { const im = new Image(); im.src = src; return im; }
+  const ASSET_VER = "5";  // bump to force phones/browsers to reload images + audio
+  function loadImg(src) { const im = new Image(); im.src = src + "?v=" + ASSET_VER; return im; }
   ROSTER.forEach(c => { c.face = loadImg("img/players/" + c.img + ".png"); });
   TEAMS.forEach(t => { t.logo = loadImg("img/logos/" + t.abbr.toLowerCase() + ".png"); });
   function ready(im) { return im && im.complete && im.naturalWidth > 0; }
 
-  // Levels: 5 stages, day -> night, each with a score target + sky theme
+  // Levels: 6 real ballparks, day -> night, longer & faster each stage.
+  // icons = legends that scroll on the outfield wall (rotating themes per team).
   const LEVELS = [
-    { name: "Spring Training",  target: 150,  sky: ["#bfe3ff", "#eaf7ff"], night: false },
-    { name: "Afternoon Game",   target: 350,  sky: ["#a9d6ff", "#e2f2ff"], night: false },
-    { name: "Golden Hour",      target: 600,  sky: ["#ffcf87", "#ffe7c4"], night: false },
-    { name: "Under the Lights", target: 900,  sky: ["#1c2b4d", "#39588a"], night: true  },
-    { name: "World Series",     target: 1300, sky: ["#0b1430", "#1b2c58"], night: true  },
+    { team: "Braves",   name: "Truist Park",        id: "truist", target: 1200,  sky: ["#8ec5e8", "#e2f2ff"], wall: "#123f2a", trim: "#ce1141", night: false,
+      icons: ["ACUÑA 13", "CHIPPER 10", "MURPHY 3", "MADDUX 31", "SMOLTZ 29"] },
+    { team: "Phillies", name: "Citizens Bank Park", id: "cbp",    target: 2800,  sky: ["#a9d6ff", "#eaf4ff"], wall: "#0b5c3b", trim: "#e81828", night: false,
+      icons: ["HARPER 3", "SCHMIDT 20", "UTLEY 26", "ROLLINS 11", "CARLTON 32"] },
+    { team: "Dodgers",  name: "Dodger Stadium",     id: "dodger", target: 4800,  sky: ["#ffb45b", "#ffe3b0"], wall: "#1a5aa0", trim: "#ffffff", night: false,
+      icons: ["OHTANI 17", "BETTS 50", "KOUFAX 32", "ROBINSON 42", "KERSHAW 22"] },
+    { team: "Rays",     name: "Tropicana Field",    id: "trop",   target: 7200,  sky: ["#12303f", "#1c4a63"], wall: "#0e3a4f", trim: "#8fd400", night: true,
+      icons: ["LONGORIA 3", "KIERMAIER 39", "CRAWFORD 13", "PEÑA 22", "FRANCO 5"] },
+    { team: "Red Sox",  name: "Fenway Park",        id: "fenway", target: 10000, sky: ["#2a3a63", "#5a6ea0"], wall: "#1f7a3d", trim: "#bd3039", night: true,
+      icons: ["ORTIZ 34", "WILLIAMS 9", "YAZ 8", "PEDROIA 15", "MARTINEZ 45"] },
+    { team: "Yankees",  name: "Yankee Stadium",     id: "yankee", target: 13500, sky: ["#0b1430", "#1b2c58"], wall: "#0c2340", trim: "#ffffff", night: true,
+      icons: ["JUDGE 99", "RUTH 3", "JETER 2", "MANTLE 7", "GEHRIG 4"] },
   ];
 
   // ======================= DIFFICULTY =====================================
@@ -251,33 +260,64 @@
     return b;
   }
   const CROWD_BASE = 0.038;
+
+  // ---- Optional REAL audio files: drop clips into audio/ and they play ----
+  // audio/crowd.mp3 (loop), audio/hit.mp3, audio/cheer.mp3, audio/playball.mp3, audio/out.mp3
+  // Missing files fall back to the light synth below (no robotic voice).
+  function makeSfx(file, loop, vol) {
+    const a = new Audio("audio/" + file + "?v=" + ASSET_VER);
+    a.preload = "auto"; a.loop = !!loop; a.volume = vol == null ? 0.7 : vol; a._ok = false;
+    a.addEventListener("canplaythrough", () => { a._ok = true; });
+    a.addEventListener("error", () => { a._ok = false; });
+    return a;
+  }
+  const SFX = {
+    playball: makeSfx("playball.mp3", false, 0.9),
+    crowd:    makeSfx("crowd.mp3",    true,  0.5),
+    hit:      makeSfx("hit.mp3",      false, 0.85),
+    cheer:    makeSfx("cheer.mp3",    false, 0.85),
+    out:      makeSfx("out.mp3",      false, 0.85),
+  };
+  function playFile(a) { if (muted || !a || !a._ok) return false; try { a.currentTime = 0; a.play(); return true; } catch (e) { return false; } }
+  function startBall() { playFile(SFX.playball); }
+  let crowdFile = false;
+
   function startCrowd() {
-    ensureAudio(); if (!audioCtx) return; stopCrowd();
+    ensureAudio();
+    if (SFX.crowd._ok) { crowdFile = true; SFX.crowd.volume = muted ? 0 : 0.5; try { SFX.crowd.currentTime = 0; SFX.crowd.play(); } catch (e) {} return; }
+    if (!audioCtx) return; stopSynthCrowd();
     crowdSrc = audioCtx.createBufferSource(); crowdSrc.buffer = noiseBuffer(2.2); crowdSrc.loop = true;
     const f = audioCtx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 720;
     crowdGain = audioCtx.createGain(); crowdGain.gain.value = muted ? 0 : CROWD_BASE;
     crowdSrc.connect(f); f.connect(crowdGain); crowdGain.connect(audioCtx.destination);
     crowdSrc.start();
   }
-  function stopCrowd() { if (crowdSrc) { try { crowdSrc.stop(); } catch (e) {} crowdSrc.disconnect(); crowdSrc = null; } }
+  function stopSynthCrowd() { if (crowdSrc) { try { crowdSrc.stop(); } catch (e) {} crowdSrc.disconnect(); crowdSrc = null; } }
+  function stopCrowd() { if (crowdFile) { try { SFX.crowd.pause(); } catch (e) {} crowdFile = false; } stopSynthCrowd(); }
+
   function cheer() {
-    if (!audioCtx || muted || !crowdGain) return;
+    if (muted) return;
+    if (playFile(SFX.cheer)) return;
+    if (!audioCtx || !crowdGain) return;
     const t = audioCtx.currentTime, g = crowdGain.gain;
     g.cancelScheduledValues(t); g.setValueAtTime(g.value, t);
     g.linearRampToValueAtTime(0.16, t + 0.12); g.linearRampToValueAtTime(CROWD_BASE, t + 1.7);
   }
   function groan() {
-    if (!audioCtx || muted) return;
+    if (muted) return;
+    if (crowdGain && audioCtx) { const t = audioCtx.currentTime, g = crowdGain.gain; g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(0.006, t + 0.7); }
+    if (playFile(SFX.out)) return;
+    if (!audioCtx) return;
     const t = audioCtx.currentTime;
-    if (crowdGain) { const g = crowdGain.gain; g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(0.006, t + 0.7); }
     const o = audioCtx.createOscillator(), g = audioCtx.createGain();
     o.type = "sawtooth"; o.frequency.setValueAtTime(170, t); o.frequency.exponentialRampToValueAtTime(80, t + 0.6);
     g.gain.setValueAtTime(0.05, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
     o.connect(g); g.connect(audioCtx.destination); o.start(t); o.stop(t + 0.62);
   }
   function crack() {
-    if (!audioCtx && !muted) ensureAudio();
-    if (!audioCtx || muted) return;
+    if (muted) return;
+    if (playFile(SFX.hit)) return;
+    ensureAudio(); if (!audioCtx) return;
     const t = audioCtx.currentTime;
     const src = audioCtx.createBufferSource(); src.buffer = noiseBuffer(0.05);
     const f = audioCtx.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = 1900; f.Q.value = 0.9;
@@ -287,10 +327,6 @@
     o.type = "triangle"; o.frequency.setValueAtTime(230, t); o.frequency.exponentialRampToValueAtTime(120, t + 0.09);
     og.gain.setValueAtTime(0.28, t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
     o.connect(og); og.connect(audioCtx.destination); o.start(t); o.stop(t + 0.11);
-  }
-  function announce(text) {
-    if (muted || !window.speechSynthesis) return;
-    try { const u = new SpeechSynthesisUtterance(text); u.rate = 1.0; u.pitch = 0.85; u.volume = 0.9; speechSynthesis.cancel(); speechSynthesis.speak(u); } catch (e) {}
   }
 
   // ======================= STATE ==========================================
@@ -320,7 +356,7 @@
   let levelIdx = 0, champShown = false, levelFlash = 0, levelFlashName = "";
   let stars = [];
   function makeStars() { stars = []; for (let i = 0; i < 42; i++) stars.push({ x: Math.random() * W, y: Math.random() * (GROUND_Y - 34), a: 0.3 + Math.random() * 0.6 }); }
-  function effMax() { return cfg.maxSpeed + levelIdx * 1.2; }
+  function effMax() { return cfg.maxSpeed + levelIdx * 1.0; }
   makeStars();
 
   for (let i = 0; i < 4; i++) clouds.push({ x: Math.random() * W, y: 24 + Math.random() * 70, s: 0.3 + Math.random() * 0.4 });
@@ -338,20 +374,18 @@
     if (oppTeams.length === 0) oppTeams = TEAMS;
     levelIdx = 0; champShown = false; levelFlash = 0; makeStars();
     menuEl.classList.add("hidden"); gameoverEl.classList.add("hidden");
-    if (richSound()) { ensureAudio(); startCrowd(); announce("Play ball!"); }
+    if (richSound()) { ensureAudio(); startCrowd(); startBall(); }
     else beep(660, 0.1, "square", 0.05);
   }
 
   function onLevelUp() {
-    levelFlash = 95; levelFlashName = LEVELS[levelIdx].name;
+    levelFlash = 100; levelFlashName = LEVELS[levelIdx].team + " · " + LEVELS[levelIdx].name;
     speed = Math.min(effMax(), speed + 0.6); makeStars();
-    if (richSound()) { cheer(); announce(LEVELS[levelIdx].name); }
-    else beep(900, 0.14, "sine", 0.06);
+    if (richSound()) cheer(); else beep(900, 0.14, "sine", 0.06);
   }
   function onChamp() {
-    levelFlash = 140; levelFlashName = "WORLD SERIES CHAMPS!";
-    if (richSound()) { cheer(); announce("World series champions!"); }
-    else beep(1046, 0.2, "sine", 0.07);
+    levelFlash = 150; levelFlashName = "WORLD SERIES CHAMPS!";
+    if (richSound()) cheer(); else beep(1046, 0.2, "sine", 0.07);
   }
 
   // ======================= SPAWNING =======================================
@@ -383,7 +417,7 @@
   }
 
   window.addEventListener("keydown", (e) => {
-    if (e.code === "KeyM") { muted = !muted; if (crowdGain) crowdGain.gain.value = muted ? 0 : CROWD_BASE; if (muted && window.speechSynthesis) speechSynthesis.cancel(); return; }
+    if (e.code === "KeyM") { muted = !muted; if (crowdGain) crowdGain.gain.value = muted ? 0 : CROWD_BASE; if (crowdFile) SFX.crowd.volume = muted ? 0 : 0.5; return; }
     if (state === S.MENU) {
       if (e.code === "ArrowLeft") { changeChar(-1); }
       else if (e.code === "ArrowRight") { changeChar(1); }
@@ -521,7 +555,7 @@
     if (useImg(ch.face)) {
       // real face, zoomed in and circle-clipped for a big-head look
       g.save(); g.beginPath(); g.arc(0, 0, R, 0, Math.PI * 2); g.clip();
-      const s = R * 2.35; g.drawImage(ch.face, -s / 2, -s * 0.56, s, s); g.restore();
+      const s = R * 2.15; g.drawImage(ch.face, -s / 2, -s / 2, s, s); g.restore();
       g.lineWidth = 1.5; g.strokeStyle = "rgba(0,0,0,0.22)"; g.beginPath(); g.arc(0, 0, R, 0, Math.PI * 2); g.stroke();
     } else {
       // clean cartoon face, scaled up
@@ -576,6 +610,85 @@
       }
     }
   }
+
+  // ---- Ballpark backdrop (stands + landmark + outfield wall + legends) ----
+  function hexToRgb(h) { h = h.replace("#", ""); if (h.length === 3) h = h.split("").map(c => c + c).join(""); const n = parseInt(h, 16); return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 }; }
+  function shade(hex, f) { const c = hexToRgb(hex); return "rgb(" + Math.round(c.r * f) + "," + Math.round(c.g * f) + "," + Math.round(c.b * f) + ")"; }
+  function tri(x, baseY, w, h) { ctx.beginPath(); ctx.moveTo(x, baseY); ctx.lineTo(x + w / 2, baseY - h); ctx.lineTo(x + w, baseY); ctx.closePath(); ctx.fill(); }
+
+  function drawPark() {
+    const L = LEVELS[levelIdx];
+    // grandstand band
+    ctx.fillStyle = shade(L.wall, L.night ? 0.55 : 0.85);
+    ctx.fillRect(0, 96, W, 60);
+    // distant crowd speckle (static pattern, no flicker)
+    ctx.fillStyle = L.night ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.16)";
+    for (let i = 6; i < W; i += 9) { const yy = 102 + ((i * 7) % 44); ctx.fillRect(i, yy, 3, 3); }
+    drawLandmark(L);
+    // outfield wall
+    ctx.fillStyle = L.wall; ctx.fillRect(0, 150, W, GROUND_Y - 150);
+    ctx.fillStyle = L.trim; ctx.fillRect(0, 150, W, 4);
+    ctx.fillStyle = "#f6c000"; ctx.fillRect(0, 154, W, 2); // home-run yellow line
+    // scrolling legend placards along the wall (rotating "iconic players")
+    const sp = 300, off = groundOffset % sp, base = Math.floor(groundOffset / sp);
+    for (let k = -1; k <= Math.ceil(W / sp) + 1; k++) {
+      const x = k * sp - off + 60;
+      const idx = ((base + k) % L.icons.length + L.icons.length) % L.icons.length;
+      ctx.fillStyle = "rgba(255,255,255,0.92)"; roundRect(ctx, x - 48, 162, 96, 24, 4); ctx.fill();
+      ctx.fillStyle = L.trim; ctx.fillRect(x - 48, 162, 96, 3);
+      ctx.fillStyle = shade(L.wall, 0.9); ctx.font = "bold 12px Arial"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(L.icons[idx], x, 175);
+    }
+  }
+
+  function drawLandmark(L) {
+    const c = ctx;
+    switch (L.id) {
+      case "truist": // Georgia pines + scoreboard
+        c.fillStyle = "#1f5e3a";
+        for (let x = -10; x < W; x += 52) tri(x, 100, 24, 42);
+        c.fillStyle = "#0a0a0a"; roundRect(c, W * 0.60, 58, 168, 40, 4); c.fill();
+        c.fillStyle = "#123f2a"; c.fillRect(W * 0.60 + 6, 64, 156, 28);
+        c.fillStyle = "#ffcf33"; c.font = "bold 12px Arial"; c.textAlign = "center"; c.textBaseline = "middle";
+        c.fillText("BRAVES 4   GUESTS 1", W * 0.60 + 84, 78);
+        break;
+      case "cbp": { // Liberty Bell
+        const bx = W * 0.74, by = 60;
+        c.fillStyle = "#ffd23f";
+        c.beginPath(); c.moveTo(bx - 26, by); c.quadraticCurveTo(bx - 30, by + 34, bx - 20, by + 40);
+        c.lineTo(bx + 20, by + 40); c.quadraticCurveTo(bx + 30, by + 34, bx + 26, by); c.closePath(); c.fill();
+        c.fillStyle = "#b8860b"; c.fillRect(bx - 30, by - 6, 60, 8);
+        c.fillStyle = "#8b5a00"; c.fillRect(bx - 5, by + 40, 10, 8);
+        break;
+      }
+      case "dodger": // mountains + zigzag pavilion + palms
+        c.fillStyle = "#8f83b5";
+        c.beginPath(); c.moveTo(0, 96); c.lineTo(140, 52); c.lineTo(300, 90); c.lineTo(480, 54); c.lineTo(680, 92); c.lineTo(860, 60); c.lineTo(W, 96); c.closePath(); c.fill();
+        c.strokeStyle = "#efe7c8"; c.lineWidth = 4; c.beginPath();
+        for (let x = 0; x <= W; x += 44) { c.lineTo(x, 96); c.lineTo(x + 22, 86); } c.stroke();
+        for (const px of [70, W - 84]) { c.fillStyle = "#3a2a12"; c.fillRect(px - 2, 70, 4, 28); c.fillStyle = "#2e8b57"; for (let a = -2; a <= 2; a++) { c.save(); c.translate(px, 70); c.rotate(a * 0.5); c.fillRect(0, -2, 16, 4); c.restore(); } }
+        break;
+      case "trop": // dome + catwalks
+        c.strokeStyle = "rgba(255,255,255,0.16)"; c.lineWidth = 3;
+        c.beginPath(); c.ellipse(W / 2, 150, W * 0.6, 120, 0, Math.PI, 0); c.stroke();
+        c.lineWidth = 2;
+        for (let i = 1; i < 6; i++) { c.beginPath(); c.moveTo((W / 6) * i, 96); c.lineTo(W / 2, 44); c.stroke(); }
+        break;
+      case "fenway": { // Green Monster + CITGO
+        c.fillStyle = "#1f7a3d"; c.fillRect(0, 66, 148, GROUND_Y - 66);
+        c.fillStyle = "#0f5a2a"; c.fillRect(0, 66, 148, 4);
+        c.fillStyle = "#0a0a0a"; for (let i = 0; i < 5; i++) c.fillRect(12 + i * 27, 118, 20, 26);
+        c.fillStyle = "#e03a3a"; roundRect(c, W - 122, 52, 62, 30, 6); c.fill();
+        c.fillStyle = "#fff"; c.font = "bold 12px Arial"; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText("CITGO", W - 91, 67);
+        break;
+      }
+      case "yankee": // white facade frieze
+        c.fillStyle = "#f4f4f0"; c.beginPath();
+        for (let x = 0; x <= W; x += 26) { c.lineTo(x, 94); c.lineTo(x + 13, 82); }
+        c.lineTo(W, 94); c.lineTo(W, 100); c.lineTo(0, 100); c.closePath(); c.fill();
+        break;
+    }
+  }
   function drawHUD() {
     const night = LEVELS[levelIdx].night;
     const ink = night ? "rgba(255,255,255,0.95)" : "#1b2a42";
@@ -587,7 +700,7 @@
     ctx.fillText("HI " + String(Math.floor(high)).padStart(5, "0"), W - 16, 34);
     ctx.textAlign = "left"; ctx.fillStyle = inkDim; ctx.font = "bold 12px Arial";
     ctx.fillText(ROSTER[charIndex].name + "  ·  " + diffKey.toUpperCase() + "  ·  V" + version, 16, 16);
-    ctx.fillText("LVL " + (levelIdx + 1) + "/5 · " + LEVELS[levelIdx].name, 16, 32);
+    ctx.fillText("LVL " + (levelIdx + 1) + "/" + LEVELS.length + " · " + LEVELS[levelIdx].name + " (" + LEVELS[levelIdx].team + ")", 16, 32);
     if (muted) ctx.fillText("🔇", 16, 48);
   }
 
@@ -648,6 +761,7 @@
 
     drawSky();
     if (!LEVELS[levelIdx].night) drawClouds();
+    drawPark();
     drawGround(groundOffset);
     for (const o of obstacles) {
       let cy = o.cy;
