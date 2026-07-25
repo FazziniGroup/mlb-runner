@@ -47,7 +47,8 @@
   .overlay h2 { margin: 0; font-size: clamp(18px, 4vw, 26px); }
   .overlay .sub { font-size: 13px; opacity: 0.8; margin-top: -6px; }
 
-  .difficulty { display: flex; gap: 8px; }
+  .difficulty { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  .rowlbl { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; opacity: 0.55; margin-bottom: -4px; }
   .diffbtn {
     border: 1.5px solid rgba(255,255,255,0.3); background: rgba(255,255,255,0.06);
     color: #fff; padding: 8px 16px; border-radius: 999px; font-size: 14px; font-weight: 700;
@@ -112,6 +113,13 @@
       <!-- START MENU -->
       <div class="overlay" id="menu">
         <h2>⚾ Choose your slugger</h2>
+        <div class="rowlbl">Version</div>
+        <div class="difficulty" id="ver">
+          <button class="diffbtn" data-ver="1">V1 · Classic</button>
+          <button class="diffbtn" data-ver="2">V2 · Faces</button>
+          <button class="diffbtn" data-ver="3">V3 · Full FX</button>
+        </div>
+        <div class="rowlbl">Difficulty</div>
         <div class="difficulty" id="diff">
           <button class="diffbtn" data-diff="easy">Easy</button>
           <button class="diffbtn active" data-diff="medium">Medium</button>
@@ -193,6 +201,15 @@
   TEAMS.forEach(t => { t.logo = loadImg("img/logos/" + t.abbr.toLowerCase() + ".png"); });
   function ready(im) { return im && im.complete && im.naturalWidth > 0; }
 
+  // Levels: 5 stages, day -> night, each with a score target + sky theme
+  const LEVELS = [
+    { name: "Spring Training",  target: 150,  sky: ["#bfe3ff", "#eaf7ff"], night: false },
+    { name: "Afternoon Game",   target: 350,  sky: ["#a9d6ff", "#e2f2ff"], night: false },
+    { name: "Golden Hour",      target: 600,  sky: ["#ffcf87", "#ffe7c4"], night: false },
+    { name: "Under the Lights", target: 900,  sky: ["#1c2b4d", "#39588a"], night: true  },
+    { name: "World Series",     target: 1300, sky: ["#0b1430", "#1b2c58"], night: true  },
+  ];
+
   // ======================= DIFFICULTY =====================================
   const DIFFS = {
     easy:   { startSpeed: 5.0, maxSpeed: 9.5,  accel: 0.0009, reactFrames: 48, gapExtra: 320, flyStart: 500, flyChance: 0.12 },
@@ -212,18 +229,68 @@
   fitDPR(); window.addEventListener("resize", fitDPR);
 
   // ======================= SOUND ==========================================
-  let audioCtx = null, muted = false;
+  // All synthesized in-browser (WebAudio) + browser speech — no audio files.
+  let audioCtx = null, muted = false, crowdGain = null, crowdSrc = null;
+  function ensureAudio() {
+    if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+    if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+  }
   function beep(freq, dur = 0.08, type = "square", vol = 0.05) {
-    if (muted) return;
-    try {
-      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
-      o.type = type; o.frequency.value = freq; g.gain.value = vol;
-      o.connect(g); g.connect(audioCtx.destination);
-      const t = audioCtx.currentTime;
-      o.start(t); g.gain.setValueAtTime(vol, t);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + dur); o.stop(t + dur);
-    } catch (e) {}
+    if (muted) return; ensureAudio(); if (!audioCtx) return;
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = type; o.frequency.value = freq; g.gain.value = vol;
+    o.connect(g); g.connect(audioCtx.destination);
+    const t = audioCtx.currentTime;
+    o.start(t); g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur); o.stop(t + dur);
+  }
+  function noiseBuffer(sec) {
+    const b = audioCtx.createBuffer(1, Math.floor(audioCtx.sampleRate * sec), audioCtx.sampleRate);
+    const d = b.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    return b;
+  }
+  const CROWD_BASE = 0.038;
+  function startCrowd() {
+    ensureAudio(); if (!audioCtx) return; stopCrowd();
+    crowdSrc = audioCtx.createBufferSource(); crowdSrc.buffer = noiseBuffer(2.2); crowdSrc.loop = true;
+    const f = audioCtx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 720;
+    crowdGain = audioCtx.createGain(); crowdGain.gain.value = muted ? 0 : CROWD_BASE;
+    crowdSrc.connect(f); f.connect(crowdGain); crowdGain.connect(audioCtx.destination);
+    crowdSrc.start();
+  }
+  function stopCrowd() { if (crowdSrc) { try { crowdSrc.stop(); } catch (e) {} crowdSrc.disconnect(); crowdSrc = null; } }
+  function cheer() {
+    if (!audioCtx || muted || !crowdGain) return;
+    const t = audioCtx.currentTime, g = crowdGain.gain;
+    g.cancelScheduledValues(t); g.setValueAtTime(g.value, t);
+    g.linearRampToValueAtTime(0.16, t + 0.12); g.linearRampToValueAtTime(CROWD_BASE, t + 1.7);
+  }
+  function groan() {
+    if (!audioCtx || muted) return;
+    const t = audioCtx.currentTime;
+    if (crowdGain) { const g = crowdGain.gain; g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(0.006, t + 0.7); }
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = "sawtooth"; o.frequency.setValueAtTime(170, t); o.frequency.exponentialRampToValueAtTime(80, t + 0.6);
+    g.gain.setValueAtTime(0.05, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+    o.connect(g); g.connect(audioCtx.destination); o.start(t); o.stop(t + 0.62);
+  }
+  function crack() {
+    if (!audioCtx && !muted) ensureAudio();
+    if (!audioCtx || muted) return;
+    const t = audioCtx.currentTime;
+    const src = audioCtx.createBufferSource(); src.buffer = noiseBuffer(0.05);
+    const f = audioCtx.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = 1900; f.Q.value = 0.9;
+    const g = audioCtx.createGain(); g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+    src.connect(f); f.connect(g); g.connect(audioCtx.destination); src.start(t); src.stop(t + 0.09);
+    const o = audioCtx.createOscillator(), og = audioCtx.createGain();
+    o.type = "triangle"; o.frequency.setValueAtTime(230, t); o.frequency.exponentialRampToValueAtTime(120, t + 0.09);
+    og.gain.setValueAtTime(0.28, t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+    o.connect(og); og.connect(audioCtx.destination); o.start(t); o.stop(t + 0.11);
+  }
+  function announce(text) {
+    if (muted || !window.speechSynthesis) return;
+    try { const u = new SpeechSynthesisUtterance(text); u.rate = 1.0; u.pitch = 0.85; u.volume = 0.9; speechSynthesis.cancel(); speechSynthesis.speak(u); } catch (e) {}
   }
 
   // ======================= STATE ==========================================
@@ -235,6 +302,11 @@
   let diffKey = localStorage.getItem("mlbDiff") || "medium";
   if (!DIFFS[diffKey]) diffKey = "medium";
 
+  let version = Number(localStorage.getItem("mlbVer") || 1);   // 1=classic, 2=faces, 3=full FX
+  if (![1, 2, 3].includes(version)) version = 1;
+  const richSound = () => version === 3;
+  function useImg(im) { return version >= 2 && ready(im); }
+
   const GRAVITY = 0.62, JUMP_V = -11.4;
   const player = { x: 92, y: GROUND_Y, vy: 0, ducking: false, onGround: true, runFrame: 0 };
 
@@ -245,6 +317,11 @@
   let obstacles = [], clouds = [];
   let spawnGap = 0, groundOffset = 0, flashMilestone = 0;
   let oppTeams = TEAMS;
+  let levelIdx = 0, champShown = false, levelFlash = 0, levelFlashName = "";
+  let stars = [];
+  function makeStars() { stars = []; for (let i = 0; i < 42; i++) stars.push({ x: Math.random() * W, y: Math.random() * (GROUND_Y - 34), a: 0.3 + Math.random() * 0.6 }); }
+  function effMax() { return cfg.maxSpeed + levelIdx * 1.2; }
+  makeStars();
 
   for (let i = 0; i < 4; i++) clouds.push({ x: Math.random() * W, y: 24 + Math.random() * 70, s: 0.3 + Math.random() * 0.4 });
 
@@ -259,8 +336,22 @@
     const me = ROSTER[charIndex];
     oppTeams = TEAMS.filter(t => t.abbr !== me.abbr);
     if (oppTeams.length === 0) oppTeams = TEAMS;
+    levelIdx = 0; champShown = false; levelFlash = 0; makeStars();
     menuEl.classList.add("hidden"); gameoverEl.classList.add("hidden");
-    beep(660, 0.1, "square", 0.05);
+    if (richSound()) { ensureAudio(); startCrowd(); announce("Play ball!"); }
+    else beep(660, 0.1, "square", 0.05);
+  }
+
+  function onLevelUp() {
+    levelFlash = 95; levelFlashName = LEVELS[levelIdx].name;
+    speed = Math.min(effMax(), speed + 0.6); makeStars();
+    if (richSound()) { cheer(); announce(LEVELS[levelIdx].name); }
+    else beep(900, 0.14, "sine", 0.06);
+  }
+  function onChamp() {
+    levelFlash = 140; levelFlashName = "WORLD SERIES CHAMPS!";
+    if (richSound()) { cheer(); announce("World series champions!"); }
+    else beep(1046, 0.2, "sine", 0.07);
   }
 
   // ======================= SPAWNING =======================================
@@ -283,7 +374,7 @@
   // ======================= INPUT ==========================================
   function jump() {
     if (state !== S.PLAYING) return;
-    if (player.onGround) { player.vy = JUMP_V; player.onGround = false; player.ducking = false; beep(520, 0.09, "square", 0.045); }
+    if (player.onGround) { player.vy = JUMP_V; player.onGround = false; player.ducking = false; if (richSound()) crack(); else beep(520, 0.09, "square", 0.045); }
   }
   function setDuck(on) {
     if (state !== S.PLAYING) return;
@@ -292,7 +383,7 @@
   }
 
   window.addEventListener("keydown", (e) => {
-    if (e.code === "KeyM") { muted = !muted; return; }
+    if (e.code === "KeyM") { muted = !muted; if (crowdGain) crowdGain.gain.value = muted ? 0 : CROWD_BASE; if (muted && window.speechSynthesis) speechSynthesis.cancel(); return; }
     if (state === S.MENU) {
       if (e.code === "ArrowLeft") { changeChar(-1); }
       else if (e.code === "ArrowRight") { changeChar(1); }
@@ -338,7 +429,7 @@
     g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2);
     g.fillStyle = "#fdfdfd"; g.fill();
     g.lineWidth = 1; g.strokeStyle = "rgba(0,0,0,0.18)"; g.stroke();
-    if (ready(team.logo)) {
+    if (useImg(team.logo)) {
       g.save(); g.beginPath(); g.arc(x, y, r - 1, 0, Math.PI * 2); g.clip();
       const s = (r - 1) * 2; g.drawImage(team.logo, x - (r - 1), y - (r - 1), s, s);
       g.restore();
@@ -384,7 +475,7 @@
     drawArm(g, -6, -40, -0.5, ch);
     drawArm(g, 9, -40, 0.55, ch);
 
-    drawHead(g, 2, -47, 0, ch);
+    drawHead(g, 2, -49, 0, ch);
     g.restore();
   }
 
@@ -400,7 +491,7 @@
     g.fillStyle = ch.primary; g.font = "bold 10px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
     g.fillText(ch.num, 0, -21);
     drawArm(g, 9, -28, 1.0, ch);   // one arm reaching forward
-    drawHead(g, 4, -24, 0.05, ch);
+    drawHead(g, 6, -19, 0.05, ch);
     g.restore();
   }
 
@@ -419,23 +510,22 @@
   }
   function drawHead(g, cx, cy, tilt, ch) {
     g.save(); g.translate(cx, cy); g.rotate(tilt);
-    if (ready(ch.face)) {
-      // real photo, circle-clipped, with a team-color cap brim on top
-      g.save(); g.beginPath(); g.arc(0, -1, 10, 0, Math.PI * 2); g.clip();
-      g.drawImage(ch.face, -11, -12, 22, 22); g.restore();
-      g.lineWidth = 1; g.strokeStyle = "rgba(0,0,0,0.15)"; g.beginPath(); g.arc(0, -1, 10, 0, Math.PI * 2); g.stroke();
-      g.fillStyle = ch.primary; g.beginPath(); g.arc(0, -3, 10, Math.PI * 1.02, Math.PI * 1.98); g.closePath(); g.fill();
-      g.fillStyle = ch.accent; g.fillRect(4, -4, 11, 3);
+    const R = 14;  // big "bobblehead" size so the face reads clearly
+    if (useImg(ch.face)) {
+      // real face, zoomed in and circle-clipped for a big-head look
+      g.save(); g.beginPath(); g.arc(0, 0, R, 0, Math.PI * 2); g.clip();
+      const s = R * 2.35; g.drawImage(ch.face, -s / 2, -s * 0.56, s, s); g.restore();
+      g.lineWidth = 1.5; g.strokeStyle = "rgba(0,0,0,0.22)"; g.beginPath(); g.arc(0, 0, R, 0, Math.PI * 2); g.stroke();
     } else {
-      // clean cartoon face
-      g.fillStyle = ch.skin; g.beginPath(); g.arc(0, 0, 9, 0, Math.PI * 2); g.fill();
-      g.fillStyle = ch.primary; g.beginPath(); g.arc(0, -1, 9.5, Math.PI, Math.PI * 2); g.closePath(); g.fill();
-      g.fillStyle = ch.accent; g.fillRect(4, -2, 11, 3.5);
-      g.fillStyle = "#fff"; g.font = "bold 7px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
-      g.fillText(ch.mark, -1, -4);
-      g.fillStyle = "#111"; g.fillRect(3, -0.5, 2, 2);
-      g.strokeStyle = "#3a2417"; g.lineWidth = 1;
-      g.beginPath(); g.arc(3, 3, 2.4, 0.1, Math.PI - 0.3); g.stroke();
+      // clean cartoon face, scaled up
+      g.fillStyle = ch.skin; g.beginPath(); g.arc(0, 1, R, 0, Math.PI * 2); g.fill();
+      g.fillStyle = ch.primary; g.beginPath(); g.arc(0, 0, R + 0.5, Math.PI, Math.PI * 2); g.closePath(); g.fill();
+      g.fillStyle = ch.accent; g.fillRect(6, -1, 15, 4.5);
+      g.fillStyle = "#fff"; g.font = "bold 9px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillText(ch.mark, -1, -5);
+      g.fillStyle = "#111"; g.fillRect(4.5, 1.5, 2.6, 2.6);
+      g.strokeStyle = "#3a2417"; g.lineWidth = 1.2;
+      g.beginPath(); g.arc(5, 6, 3.2, 0.1, Math.PI - 0.3); g.stroke();
     }
     g.restore();
   }
@@ -461,15 +551,37 @@
       ctx.arc(c.x + 26, c.y, 9, 0, Math.PI * 2); ctx.fill();
     }
   }
+  function drawSky() {
+    const L = LEVELS[levelIdx];
+    const g = ctx.createLinearGradient(0, 0, 0, GROUND_Y + 46);
+    g.addColorStop(0, L.sky[0]); g.addColorStop(1, L.sky[1]);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, GROUND_Y + 46);
+    if (L.night) {
+      ctx.fillStyle = "#fff";
+      for (const s of stars) { ctx.globalAlpha = s.a; ctx.fillRect(s.x, s.y, 2, 2); }
+      ctx.globalAlpha = 1;
+      for (const x of [130, 770]) {
+        const gg = ctx.createRadialGradient(x, 18, 4, x, 18, 82);
+        gg.addColorStop(0, "rgba(255,255,210,0.33)"); gg.addColorStop(1, "rgba(255,255,210,0)");
+        ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(x, 18, 82, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#20304a"; ctx.fillRect(x - 3, 20, 6, 72);
+        ctx.fillStyle = "#fffbe0"; roundRect(ctx, x - 20, 8, 40, 16, 4); ctx.fill();
+      }
+    }
+  }
   function drawHUD() {
-    ctx.fillStyle = "#1b2a42"; ctx.font = "bold 16px 'Courier New', monospace";
+    const night = LEVELS[levelIdx].night;
+    const ink = night ? "rgba(255,255,255,0.95)" : "#1b2a42";
+    const inkDim = night ? "rgba(255,255,255,0.65)" : "rgba(27,42,66,0.6)";
+    ctx.fillStyle = ink; ctx.font = "bold 16px 'Courier New', monospace";
     ctx.textAlign = "right"; ctx.textBaseline = "top";
     ctx.fillText(String(Math.floor(score)).padStart(5, "0"), W - 16, 14);
-    ctx.fillStyle = "rgba(27,42,66,0.55)"; ctx.font = "bold 12px 'Courier New', monospace";
+    ctx.fillStyle = inkDim; ctx.font = "bold 12px 'Courier New', monospace";
     ctx.fillText("HI " + String(Math.floor(high)).padStart(5, "0"), W - 16, 34);
-    ctx.textAlign = "left"; ctx.fillStyle = "rgba(27,42,66,0.6)"; ctx.font = "bold 12px Arial";
-    ctx.fillText(ROSTER[charIndex].name + "  ·  " + diffKey.toUpperCase(), 16, 16);
-    if (muted) ctx.fillText("🔇", 16, 32);
+    ctx.textAlign = "left"; ctx.fillStyle = inkDim; ctx.font = "bold 12px Arial";
+    ctx.fillText(ROSTER[charIndex].name + "  ·  " + diffKey.toUpperCase() + "  ·  V" + version, 16, 16);
+    ctx.fillText("LVL " + (levelIdx + 1) + "/5 · " + LEVELS[levelIdx].name, 16, 32);
+    if (muted) ctx.fillText("🔇", 16, 48);
   }
 
   // ======================= COLLISION ======================================
@@ -489,11 +601,15 @@
     ctx.clearRect(0, 0, W, H);
 
     if (state === S.PLAYING) {
-      speed = Math.min(cfg.maxSpeed, speed + cfg.accel * dt);
+      speed = Math.min(effMax(), speed + cfg.accel * dt);
       distance += speed * dt;
       const newScore = Math.floor(distance / 6);
-      if (Math.floor(newScore / 100) > Math.floor(score / 100)) { flashMilestone = 22; beep(880, 0.12, "sine", 0.06); }
+      if (Math.floor(newScore / 100) > Math.floor(score / 100)) { flashMilestone = 22; if (!richSound()) beep(880, 0.12, "sine", 0.06); }
       score = newScore;
+
+      // level progression
+      if (levelIdx < LEVELS.length - 1 && score >= LEVELS[levelIdx].target) { levelIdx++; onLevelUp(); }
+      else if (levelIdx === LEVELS.length - 1 && !champShown && score >= LEVELS[levelIdx].target) { champShown = true; onChamp(); }
 
       player.vy += GRAVITY * dt; player.y += player.vy * dt;
       if (player.y >= GROUND_Y) { player.y = GROUND_Y; player.vy = 0; player.onGround = true; }
@@ -511,7 +627,7 @@
       const pb = playerBox();
       for (const o of obstacles) {
         if (hit(pb, o)) {
-          state = S.OVER; beep(140, 0.3, "sawtooth", 0.06);
+          state = S.OVER; if (richSound()) groan(); else beep(140, 0.3, "sawtooth", 0.06);
           if (score > high) { high = score; localStorage.setItem("mlbHigh", String(high)); }
           goTitle.textContent = ROSTER[charIndex].name.split(" ")[0] + " struck out!";
           goScore.textContent = "Score " + Math.floor(score) + "  ·  High " + Math.floor(high);
@@ -523,7 +639,9 @@
 
     for (const c of clouds) { c.x -= c.s * (state === S.PLAYING ? speed : 1) * 0.25 * dt; if (c.x < -40) { c.x = W + 40; c.y = 20 + Math.random() * 70; } }
 
-    drawClouds(); drawGround(groundOffset);
+    drawSky();
+    if (!LEVELS[levelIdx].night) drawClouds();
+    drawGround(groundOffset);
     for (const o of obstacles) {
       let cy = o.cy;
       if (o.type === "fly") { o.bob += 0.15 * dt; cy = o.cy + Math.sin(o.bob) * 2; }
@@ -539,6 +657,17 @@
       ctx.globalAlpha = flashMilestone / 22; ctx.fillStyle = "#ce1141";
       ctx.textAlign = "center"; ctx.font = "bold 20px Arial"; ctx.fillText("+100!", W / 2, 44);
       ctx.globalAlpha = 1; flashMilestone -= dt;
+    }
+
+    if (levelFlash > 0) {
+      const a = Math.min(1, levelFlash / 32);
+      ctx.globalAlpha = a;
+      ctx.textAlign = "center";
+      ctx.fillStyle = "rgba(206,17,65,0.95)"; ctx.font = "bold 30px Arial";
+      const isChamp = champShown && levelIdx === LEVELS.length - 1 && levelFlashName.indexOf("CHAMP") >= 0;
+      ctx.fillText(isChamp ? levelFlashName : "LEVEL " + (levelIdx + 1), W / 2, H / 2 - 6);
+      if (!isChamp) { ctx.font = "bold 16px Arial"; ctx.fillStyle = "rgba(255,255,255,0.95)"; ctx.fillText(levelFlashName, W / 2, H / 2 + 18); }
+      ctx.globalAlpha = 1; levelFlash -= dt;
     }
 
     requestAnimationFrame(frame);
@@ -579,10 +708,14 @@
   }
   function setDiff(k) {
     diffKey = k; localStorage.setItem("mlbDiff", k);
-    document.querySelectorAll(".diffbtn").forEach(b => b.classList.toggle("active", b.dataset.diff === k));
+    document.querySelectorAll("#diff .diffbtn").forEach(b => b.classList.toggle("active", b.dataset.diff === k));
+  }
+  function setVersion(v) {
+    version = v; localStorage.setItem("mlbVer", String(v));
+    document.querySelectorAll("#ver .diffbtn").forEach(b => b.classList.toggle("active", Number(b.dataset.ver) === v));
   }
   function toMenu() {
-    state = S.MENU; obstacles = [];
+    state = S.MENU; obstacles = []; levelIdx = 0; stopCrowd();
     gameoverEl.classList.add("hidden"); menuEl.classList.remove("hidden");
   }
 
@@ -592,9 +725,11 @@
   document.getElementById("againBtn").onclick = startGame;
   document.getElementById("menuBtn").onclick = toMenu;
   document.getElementById("surprise").onclick = () => { charIndex = (Math.random() * ROSTER.length) | 0; renderPreview(); beep(700, 0.08, "sine", 0.05); };
-  document.querySelectorAll(".diffbtn").forEach(b => b.onclick = () => setDiff(b.dataset.diff));
+  document.querySelectorAll("#diff .diffbtn").forEach(b => b.onclick = () => setDiff(b.dataset.diff));
+  document.querySelectorAll("#ver .diffbtn").forEach(b => b.onclick = () => setVersion(Number(b.dataset.ver)));
 
   setDiff(diffKey);
+  setVersion(version);
   renderPreview();
 })();
 </script>
