@@ -429,9 +429,10 @@
   }
 
   // ======================= STATE ==========================================
-  const S = { MENU: 0, PLAYING: 1, OVER: 2, WIN: 3 };
+  const S = { MENU: 0, PLAYING: 1, OVER: 2, WIN: 3, PITCH: 4 };
   let state = S.MENU;
   let winTimer = 0, confetti = [];
+  let pitchPos = 0, pitchDir = 1, pitchMsg = "", pitchMsgT = 0;   // final "throw a strike" mini-game
 
   let charIndex = Number(localStorage.getItem("mlbChar") || 0);
   if (charIndex < 0 || charIndex >= ROSTER.length) charIndex = 0;
@@ -525,7 +526,7 @@
     const minGap = speed * cfg.reactFrames;      // must-clear reaction distance
     return minGap + Math.random() * cfg.gapExtra;
   }
-  function spawnGoal() { obstacles.push({ type: "finish", x: W + 240, w: 46, baseY: GROUND_Y, waterHalf: 172, sandHalf: 232, resolved: false }); }
+  function spawnGoal() { obstacles.push({ type: "finish", x: W + 200, w: 46, baseY: GROUND_Y, waterHalf: 92, bridgeHalf: 92, sandHalf: 160, resolved: false }); }
   function spawnObstacle() {
     if (goalActive) return;   // finish zone is out — no more hazards this level
     const L = LEVELS[levelIdx];
@@ -602,6 +603,7 @@
       else if (e.code === "Escape") { toMenu(); }
       return;
     }
+    if (state === S.PITCH) { if (e.code === "Space" || e.code === "Enter" || e.code === "ArrowUp") { e.preventDefault(); throwPitch(); } return; }
     // playing
     if (e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyW") { e.preventDefault(); jump(); }
     else if (e.code === "ArrowDown" || e.code === "KeyS") { e.preventDefault(); setDuck(true); }
@@ -614,6 +616,7 @@
   const isTouch = (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) || ("ontouchstart" in window);
   // Desktop/mouse: tap top = jump, hold bottom = slide. (Phones use the on-screen buttons.)
   canvas.addEventListener("pointerdown", (e) => {
+    if (state === S.PITCH) { e.preventDefault(); throwPitch(); return; }   // tap to throw a strike (any device)
     if (state !== S.PLAYING || isTouch) return;
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
@@ -734,12 +737,12 @@
     drawMeanFace(g, cx, cy, r);
     g.restore();
   }
-  // Finish zone: a long dirt infield with a WATER gap and the base as an island.
-  // Jump and land on the base — land in the water and you lose the inning.
+  // Finish zone: dirt infield with a WATER gap crossed by an aerial BRIDGE.
+  // Just jump onto the bridge to cross — only fall in if you stay on the ground.
   function drawFinish(o) {
-    const g = ctx, cx = o.x, gy = GROUND_Y, islandHalf = o.w / 2 + 12;
+    const g = ctx, cx = o.x, gy = GROUND_Y, by = gy - 60;
     g.save();
-    // brown dirt strip (~10x the base)
+    // dirt approach
     g.fillStyle = "#c69a5f"; g.fillRect(cx - o.sandHalf, gy, o.sandHalf * 2, H - gy);
     g.fillStyle = "#b3854b"; g.fillRect(cx - o.sandHalf, gy, o.sandHalf * 2, 4);
     // water gap
@@ -747,20 +750,19 @@
     g.fillStyle = "#3a90e6"; g.fillRect(cx - o.waterHalf, gy, o.waterHalf * 2, 5);
     g.strokeStyle = "rgba(255,255,255,0.5)"; g.lineWidth = 1.5;
     const rip = performance.now() * 0.005;
-    for (let i = 0; i < 5; i++) { const xx = cx - o.waterHalf + 26 + i * ((o.waterHalf * 2 - 52) / 4); g.beginPath(); g.moveTo(xx - 12, gy + 12 + Math.sin(rip + i) * 2); g.lineTo(xx + 12, gy + 12 + Math.sin(rip + i + 1) * 2); g.stroke(); }
-    // the base island in the middle
-    g.fillStyle = "#c69a5f"; g.fillRect(cx - islandHalf, gy, islandHalf * 2, H - gy);
-    g.fillStyle = "#b3854b"; g.fillRect(cx - islandHalf, gy, islandHalf * 2, 4);
-    // home plate on the island
-    const w = o.w / 2, topY = gy - 26, midY = gy - 11, botY = gy - 2;
-    g.beginPath(); g.moveTo(cx - w, topY); g.lineTo(cx + w, topY); g.lineTo(cx + w, midY); g.lineTo(cx, botY); g.lineTo(cx - w, midY); g.closePath();
-    g.fillStyle = "#fff"; g.fill(); g.lineWidth = 2.5; g.strokeStyle = "#111"; g.stroke();
+    for (let i = 0; i < 4; i++) { const xx = cx - o.waterHalf + 22 + i * ((o.waterHalf * 2 - 44) / 3); g.beginPath(); g.moveTo(xx - 10, gy + 12 + Math.sin(rip + i) * 2); g.lineTo(xx + 10, gy + 12 + Math.sin(rip + i + 1) * 2); g.stroke(); }
+    // support posts + aerial bridge
+    g.fillStyle = "#5a3a17"; g.fillRect(cx - o.bridgeHalf + 4, by + 8, 4, gy - (by + 8)); g.fillRect(cx + o.bridgeHalf - 8, by + 8, 4, gy - (by + 8));
+    g.fillStyle = "#a9763c"; g.fillRect(cx - o.bridgeHalf, by, o.bridgeHalf * 2, 9);
+    g.lineWidth = 1.6; g.strokeStyle = "#5a3a17"; g.strokeRect(cx - o.bridgeHalf, by, o.bridgeHalf * 2, 9);
+    g.strokeStyle = "rgba(0,0,0,0.22)"; g.lineWidth = 1;
+    for (let x = -o.bridgeHalf + 10; x < o.bridgeHalf; x += 12) { g.beginPath(); g.moveTo(cx + x, by); g.lineTo(cx + x, by + 9); g.stroke(); }
     g.restore();
     // flashing prompt
     const a = 0.6 + 0.4 * Math.sin(performance.now() * 0.008);
     g.save(); g.globalAlpha = a; g.textAlign = "center";
     g.font = "bold 15px Arial"; g.lineWidth = 3; g.strokeStyle = "rgba(0,0,0,0.45)";
-    g.strokeText("LAND ON THE BASE!", cx, gy - 44); g.fillStyle = "#ffd23f"; g.fillText("LAND ON THE BASE!", cx, gy - 44);
+    g.strokeText("JUMP THE BRIDGE!", cx, by - 12); g.fillStyle = "#ffd23f"; g.fillText("JUMP THE BRIDGE!", cx, by - 12);
     g.restore();
   }
 
@@ -1125,6 +1127,40 @@
     g.beginPath(); g.arc(x + r * 0.6, y, r, Math.PI - 0.5, Math.PI + 0.5); g.stroke();
     g.restore();
   }
+  // Final mini-game: throw a strike to win the World Series
+  function startPitch() { state = S.PITCH; pitchPos = 0; pitchDir = 1; pitchMsg = ""; pitchMsgT = 0; if (!playFile(SFX.playball)) chargeRiff(); }
+  function throwPitch() {
+    if (pitchPos >= 0.4 && pitchPos <= 0.6) {          // in the green zone -> STRIKE!
+      champShown = true; crack(); onChamp();
+    } else {
+      pitchMsg = "BALL! Try again"; pitchMsgT = 42; beep(180, 0.16, "sawtooth", 0.05);
+    }
+  }
+  function drawPitch(dt) {
+    pitchPos += pitchDir * 0.017 * dt;
+    if (pitchPos >= 1) { pitchPos = 1; pitchDir = -1; }
+    if (pitchPos <= 0) { pitchPos = 0; pitchDir = 1; }
+    drawSky(); if (!LEVELS[levelIdx].night) drawClouds(); drawPark(); drawGround(groundOffset);
+    const zx = W * 0.5, zy = GROUND_Y - 66, zw = 130, zh = 96;
+    ctx.save();
+    // strike-zone box + green target band
+    ctx.fillStyle = "rgba(255,255,255,0.12)"; ctx.fillRect(zx - zw / 2, zy - zh / 2, zw, zh);
+    ctx.fillStyle = "rgba(55,224,106,0.4)"; ctx.fillRect(zx - zw * 0.1, zy - zh / 2, zw * 0.2, zh);
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.strokeRect(zx - zw / 2, zy - zh / 2, zw, zh);
+    // sweeping ball marker + aim line
+    const mx = (zx - zw / 2) + pitchPos * zw;
+    ctx.strokeStyle = "rgba(255,255,255,0.55)"; ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(mx, zy - zh / 2); ctx.lineTo(mx, zy + zh / 2 + 20); ctx.stroke(); ctx.setLineDash([]);
+    ctx.restore();
+    drawPlainBall(mx, zy + zh / 2 + 30, 11);
+    // prompts
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#ffd23f"; ctx.font = "bold 22px Arial"; ctx.lineWidth = 4; ctx.strokeStyle = "rgba(0,0,0,0.4)";
+    ctx.strokeText("THROW A STRIKE TO WIN!", W / 2, 40); ctx.fillText("THROW A STRIKE TO WIN!", W / 2, 40);
+    ctx.fillStyle = "rgba(255,255,255,0.92)"; ctx.font = "bold 13px Arial";
+    ctx.fillText("Tap / Space when the ball hits the green zone", W / 2, 60);
+    if (pitchMsgT > 0) { ctx.globalAlpha = Math.min(1, pitchMsgT / 22); ctx.fillStyle = "#ff6a6a"; ctx.font = "bold 26px Arial"; ctx.fillText(pitchMsg, W / 2, GROUND_Y - 6); ctx.globalAlpha = 1; pitchMsgT -= dt; }
+  }
   // Level-clear cutscene: player takes a swing and BOMBS a pitch for a home run
   function drawHomeRunScene(p) {
     const px = player.x, feet = GROUND_Y, sc = 1 + sizeLevel * 0.28;
@@ -1235,6 +1271,7 @@
     ctx.clearRect(0, 0, W, H);
 
     if (state === S.WIN) { drawCelebration(dt); requestAnimationFrame(frame); return; }
+    if (state === S.PITCH) { drawPitch(dt); requestAnimationFrame(frame); return; }
 
     if (state === S.PLAYING) {
       if (celebrating) {
@@ -1315,19 +1352,18 @@
         if (died) endGame(ROSTER[charIndex].name.split(" ")[0] + " struck out!");
         else obstacles = obstacles.filter(o => !o.gone);
 
-        // finish line: JUMP and land on the base — miss it (water) and you lose the inning
+        // finish: JUMP onto the bridge over the water. Airborne over it = safe;
+        // caught on the ground in the water = you fall in and lose the inning.
         if (!died) {
           const fin = obstacles.find(o => o.type === "finish");
           if (fin && !fin.resolved) {
             const dx = player.x - fin.x;
-            if (player.onGround && Math.abs(dx) <= fin.w / 2 + 14) {
+            if (!player.onGround && Math.abs(dx) <= fin.bridgeHalf) {
               fin.resolved = true; goalActive = false;
               if (levelIdx < LEVELS.length - 1) { levelIdx++; onLevelUp(); }
-              else { champShown = true; onChamp(); }
+              else { startPitch(); }                       // final level -> throw a strike to win
             } else if (player.onGround && Math.abs(dx) <= fin.waterHalf) {
               fin.resolved = true; endGame(ROSTER[charIndex].name.split(" ")[0] + " fell in the water! 💦");
-            } else if (dx > fin.waterHalf + 6) {
-              fin.resolved = true; endGame("Missed the base! 💦");
             }
           }
         }
