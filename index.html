@@ -208,7 +208,7 @@
   // ======================= OPTIONAL REAL IMAGES ===========================
   // Drop files in img/players/<img>.png and img/logos/<abbr>.png to use them.
   // Missing files fall back to the drawn version automatically.
-  const ASSET_VER = "8";  // bump to force phones/browsers to reload images + audio
+  const ASSET_VER = "9";  // bump to force phones/browsers to reload images + audio
   function loadImg(src) { const im = new Image(); im.src = src + "?v=" + ASSET_VER; return im; }
   ROSTER.forEach(c => { c.face = loadImg("img/players/" + c.img + ".png"); });
   TEAMS.forEach(t => { t.logo = loadImg("img/logos/" + t.abbr.toLowerCase() + ".png"); });
