@@ -182,15 +182,15 @@
 
   // Opponent baseballs (color + abbr, drawn)
   const TEAMS = [
-    { abbr: "NYM", color: "#ff5910", ink: "#002d72" },
-    { abbr: "PHI", color: "#e81828", ink: "#ffffff" },
-    { abbr: "MIA", color: "#00a3e0", ink: "#000000" },
-    { abbr: "WSH", color: "#ab0003", ink: "#14225a" },
-    { abbr: "LAD", color: "#005a9c", ink: "#ffffff" },
-    { abbr: "HOU", color: "#eb6e1f", ink: "#002d62" },
-    { abbr: "SD",  color: "#2f241d", ink: "#ffc425" },
-    { abbr: "NYY", color: "#0c2340", ink: "#ffffff" },
-    { abbr: "ATL", color: "#ce1141", ink: "#13274f" },
+    { abbr: "NYM", color: "#ff5910", ink: "#ffffff", mark: "NY" },
+    { abbr: "PHI", color: "#e81828", ink: "#ffffff", mark: "P"  },
+    { abbr: "MIA", color: "#00a3e0", ink: "#000000", mark: "M"  },
+    { abbr: "WSH", color: "#ab0003", ink: "#ffffff", mark: "W"  },
+    { abbr: "LAD", color: "#005a9c", ink: "#ffffff", mark: "LA" },
+    { abbr: "HOU", color: "#eb6e1f", ink: "#002d62", mark: "H"  },
+    { abbr: "SD",  color: "#2f241d", ink: "#ffc425", mark: "SD" },
+    { abbr: "NYY", color: "#0c2340", ink: "#ffffff", mark: "NY" },
+    { abbr: "ATL", color: "#ce1141", ink: "#13274f", mark: "A"  },
   ];
 
   // ======================= OPTIONAL REAL IMAGES ===========================
@@ -430,19 +430,26 @@
     g.fillStyle = "#fdfdfd"; g.fill();
     g.lineWidth = 1; g.strokeStyle = "rgba(0,0,0,0.18)"; g.stroke();
     if (useImg(team.logo)) {
+      // real logo file, clipped to the ball
       g.save(); g.beginPath(); g.arc(x, y, r - 1, 0, Math.PI * 2); g.clip();
       const s = (r - 1) * 2; g.drawImage(team.logo, x - (r - 1), y - (r - 1), s, s);
       g.restore();
     } else {
-      g.strokeStyle = "#d33"; g.lineWidth = 1.6;
-      g.beginPath(); g.arc(x - r * 0.55, y, r * 1.05, -0.7, 0.7); g.stroke();
-      g.beginPath(); g.arc(x + r * 0.55, y, r * 1.05, Math.PI - 0.7, Math.PI + 0.7); g.stroke();
-      const tagW = 34, tagH = 15, ty = y - r - tagH - 4;
-      g.fillStyle = team.color; roundRect(g, x - tagW / 2, ty, tagW, tagH, 4); g.fill();
-      g.fillStyle = team.ink; g.font = "bold 10px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
-      g.fillText(team.abbr, x, ty + tagH / 2 + 0.5);
-      g.fillStyle = team.color;
-      g.beginPath(); g.moveTo(x - 3, ty + tagH); g.lineTo(x + 3, ty + tagH); g.lineTo(x, ty + tagH + 4); g.closePath(); g.fill();
+      // red stitches (keeps the baseball look)
+      g.strokeStyle = "rgba(214,51,51,0.55)"; g.lineWidth = 1.4;
+      g.beginPath(); g.arc(x - r * 0.62, y, r * 1.08, -0.6, 0.6); g.stroke();
+      g.beginPath(); g.arc(x + r * 0.62, y, r * 1.08, Math.PI - 0.6, Math.PI + 0.6); g.stroke();
+      if (version >= 2) {
+        // team roundel emblem stamped on the ball (V2/V3). V1 stays a plain baseball.
+        const er = r * 0.72;
+        g.beginPath(); g.arc(x, y, er, 0, Math.PI * 2);
+        g.fillStyle = team.color; g.fill();
+        g.lineWidth = 1.6; g.strokeStyle = "rgba(255,255,255,0.92)"; g.stroke();
+        g.fillStyle = team.ink;
+        const fs = Math.round(team.mark.length > 1 ? er * 0.92 : er * 1.28);
+        g.font = "bold " + fs + "px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
+        g.fillText(team.mark, x, y + 0.5);
+      }
     }
     g.restore();
   }
